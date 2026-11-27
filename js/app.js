@@ -1,5 +1,5 @@
 // Pulse — boot + shell wiring
-import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, currentColor, go, back, fwd, refresh, refreshSoon, markNav, menu, closeLayer, setImg, setLikeBtn, burst, marquee, slider, ico } from './core.js';
+import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, currentColor, setBgArt, go, back, fwd, refresh, refreshSoon, markNav, menu, closeLayer, setImg, setLikeBtn, burst, marquee, slider, ico } from './core.js';
 import { $, $$, fmtTime, debounce, throttle, clamp } from './util.js';
 import { trackMenu, albumKey, treeEl, rerenderTrees, createMenu, importMusic, addFolder } from './views.js';
 import * as NP from './np.js';
@@ -65,7 +65,7 @@ async function updateBar() {
   $('#barLike').style.visibility = t ? '' : 'hidden';
   marquee($('#bar .marq'));
   await Promise.all([setImg($('#barArt img'), t?.cover, true), setImg($('.mb-art img'), t?.cover, true)]);
-  applyAccent(currentColor());
+  applyAccent(currentColor()); setBgArt(t?.cover);
   document.title = t ? `${t.title} • ${t.artist || 'Pulse'}` : 'Pulse';
   updateTime();
 }

@@ -4,7 +4,8 @@ import { player } from './player.js';
 import { $, $$, esc, h, debounce, toast, clamp } from './util.js';
 
 export const DEFAULTS = {
-  theme: 'dark', accentMode: 'dynamic', accent: '#1ed760', anim: 'full', compact: false, winOpacity: 1, glow: 1,
+  theme: 'dark', accentMode: 'dynamic', accent: '#7c5cff', accent2: 'auto', bgMode: 'aurora', wallpaper: null, blur: 28, glass: 0.35, radius: 20, font: 'system', preset: 'pulse',
+  anim: 'full', compact: false, winOpacity: 1, glow: 1,
   volume: 0.8, muted: false, speed: 1, keepPitch: true, shuffle: false, repeat: 'off', crossfade: 0, fadePause: true, leveler: false,
   eqOn: false, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], preamp: 0, eqPreset: 'Flat', engine: 'auto',
   sideMini: false, panel: null, viz: 'bars', blurLyrics: false, lastView: null, songsSort: { k: 'added', d: -1 }, albumSort: 'name', gridSize: 172,
@@ -24,44 +25,66 @@ export function loadSettings() {
 }
 
 // ---------- theming ----------
-export function hexToRgb(hx) { const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hx || ''); return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [30, 215, 96]; }
-function tuneAccent([r, g, b], light) {
-  // lift dark colours / tame very bright so the accent always reads
-  const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  let target = light ? Math.min(l, 0.45) : Math.max(l, 0.52);
-  if (Math.abs(target - l) > 0.01) {
-    const mix = light ? 0 : 255; const k = clamp(Math.abs(target - l) / Math.abs(mix / 255 - l || 1), 0, 0.85);
-    r += (mix - r) * k; g += (mix - g) * k; b += (mix - b) * k;
-  }
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-  if (mx - mn < 30) { r = Math.min(255, r + 10); } // grey-ish: keep
-  return [r, g, b].map((v) => Math.round(clamp(v, 0, 255)));
+export const PRESETS = {
+  pulse:    { name: 'Pulse',    theme: 'dark',     accentMode: 'dynamic', accent: '#7c5cff', accent2: 'auto',    bgMode: 'aurora', blur: 28, glass: 0.35, radius: 20, font: 'system',  glow: 1,   pv: ['#0b0b12', '#7c5cff', '#22d3ee'] },
+  midnight: { name: 'Midnight', theme: 'midnight', accentMode: 'fixed',   accent: '#6d5dfc', accent2: '#22d3ee', bgMode: 'aurora', blur: 30, glass: 0.25, radius: 20, font: 'system',  glow: 1.1, pv: ['#070a18', '#6d5dfc', '#22d3ee'] },
+  vinyl:    { name: 'Vinyl',    theme: 'dark',     accentMode: 'dynamic', accent: '#ff8a3d', accent2: 'auto',    bgMode: 'art',    blur: 40, glass: 0.22, radius: 24, font: 'system',  glow: 1,   pv: ['#120c0a', '#ff8a3d', '#c2410c'] },
+  ember:    { name: 'Ember',    theme: 'black',    accentMode: 'fixed',   accent: '#ff7a1a', accent2: '#ff3d6e', bgMode: 'aurora', blur: 26, glass: 0.2,  radius: 18, font: 'system',  glow: 0.9, pv: ['#000000', '#ff7a1a', '#ff3d6e'] },
+  frost:    { name: 'Frost',    theme: 'light',    accentMode: 'fixed',   accent: '#3b82f6', accent2: '#22d3ee', bgMode: 'aurora', blur: 34, glass: 0.55, radius: 22, font: 'system',  glow: 1,   pv: ['#eef0f6', '#3b82f6', '#22d3ee'] },
+  sakura:   { name: 'Sakura',   theme: 'light',    accentMode: 'fixed',   accent: '#f2558f', accent2: '#a78bfa', bgMode: 'aurora', blur: 30, glass: 0.5,  radius: 26, font: 'rounded', glow: 1.1, pv: ['#f6eef3', '#f2558f', '#a78bfa'] },
+  mono:     { name: 'Mono',     theme: 'black',    accentMode: 'fixed',   accent: '#e8e8ec', accent2: '#8b8b96', bgMode: 'solid',  blur: 18, glass: 0.35, radius: 8,  font: 'mono',    glow: 0,   pv: ['#000000', '#e8e8ec', '#55555e'] },
+  lagoon:   { name: 'Lagoon',   theme: 'dark',     accentMode: 'fixed',   accent: '#14d8b0', accent2: '#3b82f6', bgMode: 'aurora', blur: 32, glass: 0.28, radius: 20, font: 'rounded', glow: 1.2, pv: ['#061214', '#14d8b0', '#3b82f6'] }
+};
+export function applyPreset(k) { const p = PRESETS[k]; if (!p) return; const { name, pv, ...vals } = p; Object.assign(app.S, vals, { preset: k }); app.saveS(); applyTheme(); }
+export function hexToRgb(hx) { const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hx || ''); return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [124, 92, 255]; }
+const toHsl = ([r, g, b]) => { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b); let h = 0, s = 0; const l = (mx + mn) / 2; if (mx !== mn) { const d = mx - mn; s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn); h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h /= 6; } return [h * 360, s, l]; };
+const fromHsl = ([h, s, l]) => { h = ((h % 360) + 360) % 360 / 360; const f = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; }; if (!s) return [l, l, l].map((v) => Math.round(v * 255)); const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q; return [f(p, q, h + 1 / 3), f(p, q, h), f(p, q, h - 1 / 3)].map((v) => Math.round(v * 255)); };
+function tuneAccent(rgb, light) {
+  // keep the accent readable: enough saturation and the right lightness for the theme
+  let [h, s, l] = toHsl(rgb);
+  if (s > 0.12) s = Math.max(s, 0.55);
+  l = light ? Math.min(Math.max(l, 0.38), 0.52) : Math.min(Math.max(l, 0.56), 0.72);
+  return fromHsl([h, s, l]);
 }
 let lastAccent = null;
 export function applyAccent(hex) {
   const S = app.S; const light = document.body.classList.contains('light');
   if (S.accentMode !== 'dynamic' || !hex) hex = S.accent;
   const rgb = tuneAccent(hexToRgb(hex), light);
-  const key = rgb.join(','); if (key === lastAccent) return; lastAccent = key;
+  let rgb2;
+  if (S.accent2 && S.accent2 !== 'auto') rgb2 = tuneAccent(hexToRgb(S.accent2), light);
+  else { const [h, s2, l] = toHsl(rgb); rgb2 = s2 < 0.12 ? fromHsl([h, 0, Math.max(0.3, l - 0.25)]) : fromHsl([h + 48, Math.min(1, s2 + 0.05), l]); }
+  const key = rgb.join(',') + '|' + rgb2.join(','); if (key === lastAccent) return; lastAccent = key;
   const lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
   const st = document.documentElement.style;
-  st.setProperty('--acc', `rgb(${key})`); st.setProperty('--acc-rgb', key); st.setProperty('--acc-ink', lum > 0.55 ? '#0a0a0c' : '#ffffff');
-  const mb = hexToRgb(hex).map((v) => Math.round(v * 0.45 + 18)); st.setProperty('--mb', `rgb(${mb.join(',')})`);
-  const meta = document.querySelector('meta[name=theme-color]'); if (meta && app.isMobile) meta.content = `rgb(${getComputedStyle(document.documentElement).getPropertyValue('--bg-rgb')})`;
+  st.setProperty('--acc', `rgb(${rgb.join(',')})`); st.setProperty('--acc-rgb', rgb.join(',')); st.setProperty('--acc2-rgb', rgb2.join(',')); st.setProperty('--acc-ink', lum > 0.6 ? '#0a0a0c' : '#ffffff');
 }
 export function applyTheme() {
   const S = app.S, b = document.body;
+  if (S.theme === 'amoled') S.theme = 'black';
   let theme = S.theme; if (theme === 'auto') theme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  b.classList.toggle('light', theme === 'light'); b.classList.toggle('amoled', theme === 'amoled');
+  for (const t of ['light', 'black', 'midnight']) b.classList.toggle(t, theme === t);
+  for (const m of ['aurora', 'art', 'wall', 'solid']) b.classList.toggle('bg-' + m, (S.bgMode === 'wallpaper' ? 'wall' : S.bgMode) === m);
+  for (const f of ['rounded', 'serif', 'mono']) b.classList.toggle('f-' + f, S.font === f);
   b.classList.toggle('compact', !!S.compact);
   b.classList.toggle('anim-off', S.anim === 'off'); b.classList.toggle('anim-low', S.anim === 'low');
   b.classList.toggle('side-mini', !!S.sideMini); b.classList.toggle('blur-lyrics', !!S.blurLyrics);
-  const st = document.documentElement.style;
+  const st = document.documentElement.style; const light = theme === 'light';
   st.setProperty('--alpha', app.isDesktop ? S.winOpacity : 1); st.setProperty('--glow', S.glow);
   st.setProperty('--card', S.gridSize + 'px');
+  st.setProperty('--blur', S.blur + 'px');
+  st.setProperty('--panel-a', (light ? 0.3 + S.glass * 0.6 : 0.015 + S.glass * 0.22).toFixed(3));
+  st.setProperty('--r', S.radius + 'px'); st.setProperty('--r-sm', Math.round(S.radius * 0.65) + 'px');
+  const wall = document.querySelector('#bg .bg-wall'); if (wall) wall.style.backgroundImage = S.wallpaper ? `url(${S.wallpaper})` : '';
+  const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = getComputedStyle(b).getPropertyValue('--bg-rgb') ? `rgb(${getComputedStyle(b).getPropertyValue('--bg-rgb')})` : '#09090e';
   lastAccent = null; applyAccent(currentColor());
 }
 export function currentColor() { const t = player.track; return t?.cover ? lib.db.covers[t.cover]?.color : null; }
+export async function setBgArt(key) {
+  const img = document.querySelector('#bg .bg-art img'); if (!img) return;
+  if (!key) { img.removeAttribute('src'); return; }
+  const u = await app.P.coverURL(key, true); if (u) img.src = u;
+}
 
 // ---------- covers ----------
 export function coverImg(key, small = true, cls = '') {

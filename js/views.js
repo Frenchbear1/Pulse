@@ -1,5 +1,5 @@
 // All page views + the virtualized track list + track/playlist actions.
-import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, DEFAULTS } from './core.js';
+import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS } from './core.js';
 import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce } from './util.js';
 import { EQ_PRESETS } from './player.js';
 import { albumKeyOf, primaryArtist } from './library.js';
@@ -216,9 +216,13 @@ const likedIds = () => Object.entries(lib.db.liked).filter(([id]) => T(id)).sort
 function emptyLibrary() {
   const desk = app.isDesktop;
   const el = h(`<div class="empty" style="padding-top:12vh"><div class="boot-logo" style="justify-content:center;margin-bottom:18px"><span></span><span></span><span></span><span></span></div><h3>Your music, instantly.</h3><p>${desk ? 'Point Pulse at the folders where your songs live. Sub-folders, covers, tags and lyrics are all picked up automatically.' : 'Import songs or whole folders from the Files app. They\'re stored inside Pulse so they play offline, with covers and lyrics.'}</p>
-    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">${desk ? `<button class="pill solid" data-add>${ico('folder')}Add music folder</button>` : `<button class="pill solid" data-imp="1">${ico('folder')}Import a folder</button><button class="pill" data-imp="0">${ico('note')}Import songs</button>`}</div></div>`);
+    <div class="btns">${desk ? `<button class="pill solid" data-add>${ico('folder')}Add music folder</button>` : `<button class="pill solid" data-imp="1">${ico('folder')}Import a folder</button><button class="pill" data-imp="0">${ico('note')}Import songs</button>`}</div></div>`);
   el.addEventListener('click', (e) => { if (e.target.closest('[data-add]')) addFolder(); const b = e.target.closest('[data-imp]'); if (b) importMusic(b.dataset.imp === '1'); });
   return el;
+}
+async function shrinkImage(pic) {
+  const url = URL.createObjectURL(new Blob([pic.data], { type: pic.mime || 'image/jpeg' }));
+  try { const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; }); const sc = Math.min(1, 1920 / Math.max(img.naturalWidth, img.naturalHeight)); const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.82); } finally { URL.revokeObjectURL(url); }
 }
 export async function addFolder() { const r = await app.P.pickRoot(); if (r) { toast('Scanning ' + r.name + '…'); await lib.addRoot(r); refresh(); } }
 export async function importMusic(folder) {
@@ -233,7 +237,7 @@ R.home = () => {
   const el = h('<div class="page"></div>');
   if (!Object.keys(lib.db.tracks).length && !lib.scanning) { el.appendChild(emptyLibrary()); return el; }
   const hr = new Date().getHours(); const greet = hr < 5 ? 'Up late' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
-  el.appendChild(h(`<div class="greet">${greet}</div>`));
+  el.appendChild(h(`<div class="greet"><span>${greet}</span></div>`));
   // quick tiles: liked + recent playlists/albums
   const tiles = [`<a class="tile" data-go="liked" style="--i:0"><span class="sw liked">${ico('heart-f')}</span><b>Liked Songs</b><span class="fab" data-play>${ico('play')}</span></a>`];
   const recentNodes = Object.values(lib.db.nodes).filter((n) => n.type === 'playlist').sort((a, b) => (b.updated || b.created) - (a.updated || a.created)).slice(0, 4);
@@ -624,8 +628,8 @@ R.search = ({ q = '' }) => {
     if (!q) {
       res.appendChild(h('<div class="page-h" style="margin-top:6px"><h1>Browse</h1></div>'));
       const gs = [...lib.idx.genres.values()].sort((a, b) => b.tracks.length - a.tracks.length).slice(0, 40);
-      const cards = gs.map((g, i) => { let hs = 0; for (const c of g.name) hs = (hs * 31 + c.charCodeAt(0)) | 0; const hue = Math.abs(hs) % 360; return `<a class="tile" data-genre="${esc(g.key)}" style="--i:${i};height:96px;background:linear-gradient(135deg,hsl(${hue} 60% 42%),hsl(${(hue + 40) % 360} 65% 24%));color:#fff"><b style="padding:0 16px;font-size:17px;white-space:normal">${esc(g.name)}</b></a>`; }).join('');
-      res.appendChild(h(`<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(${app.isMobile ? 150 : 200}px,1fr))">${cards || '<p style="color:var(--tx3)">Genres from your tags will show up here.</p>'}</div>`));
+      const cards = gs.map((g, i) => { let hs = 0; for (const c of g.name) hs = (hs * 31 + c.charCodeAt(0)) | 0; const hue = Math.abs(hs) % 360; return `<a class="tile genre-tile" data-genre="${esc(g.key)}" style="--i:${i};background:linear-gradient(135deg,hsl(${hue} 62% 46% / .9),hsl(${(hue + 50) % 360} 70% 28% / .9))"><b>${esc(g.name)}</b></a>`; }).join('');
+      res.appendChild(h(`<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(${app.isMobile ? 150 : 200}px,1fr))">${cards || '<p style="color:var(--tx3);grid-column:1/-1;margin:0">Genres from your songs\' tags will show up here once you add music.</p>'}</div>`));
       res.onclick = (e) => { const g = e.target.closest('[data-genre]'); if (g) go('genre', { key: g.dataset.genre }); };
       return;
     }
@@ -649,7 +653,9 @@ R.search = ({ q = '' }) => {
 // =====================================================================
 const tog = (k, on) => `<div class="tog ${on ? 'on' : ''}" data-tog="${k}"></div>`;
 const opt = (title, desc, right) => `<div class="opt"><div class="l"><b>${title}</b>${desc ? `<small>${desc}</small>` : ''}</div><div class="r">${right}</div></div>`;
-const ACCENTS = ['#1ed760', '#7c5cff', '#ff4d8d', '#ff7a1a', '#ffd23f', '#22d3ee', '#3b82f6', '#f43f5e', '#a3e635', '#ffffff'];
+const ACCENTS = ['#7c5cff', '#3b82f6', '#22d3ee', '#14d8b0', '#1ed760', '#a3e635', '#ffd23f', '#ff7a1a', '#ff3d6e', '#f2558f', '#c084fc', '#e8e8ec'];
+const fmtVal = (f, v) => f === 'px' ? Math.round(v) + 'px' : f === 's' ? (v ? v + 's' : 'Off') : Math.round(v * 100) + '%';
+const THEME_KEYS = ['theme', 'accentMode', 'accent', 'accent2', 'bgMode', 'blur', 'glass', 'radius', 'font', 'glow'];
 R.settings = () => {
   const S = app.S; const el = h('<div class="page settings"></div>');
   el.appendChild(h(`<div class="page-h"><h1>Settings</h1></div>`));
@@ -668,14 +674,27 @@ R.settings = () => {
   }
   libHTML += `</div>`;
   el.appendChild(h(`<div>${libHTML}</div>`));
-  // Look
-  const themeSeg = `<div class="seg" data-seg="theme">${[['dark', 'Dark'], ['amoled', 'Black'], ['light', 'Light'], ['auto', 'Auto']].map(([k, l]) => `<button data-v="${k}" class="${S.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const animSeg = `<div class="seg" data-seg="anim">${[['full', 'Full'], ['low', 'Subtle'], ['off', 'Off']].map(([k, l]) => `<button data-v="${k}" class="${S.anim === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const accSeg = `<div class="seg" data-seg="accentMode">${[['dynamic', 'From album art'], ['fixed', 'Fixed']].map(([k, l]) => `<button data-v="${k}" class="${S.accentMode === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const sw = `<div class="swatches">${ACCENTS.map((c) => `<button data-acc="${c}" style="background:${c}" class="${S.accent === c && S.accentMode === 'fixed' ? 'on' : ''}"></button>`).join('')}<input type="color" value="${S.accent}" data-acccustom style="width:28px;height:28px;border:0;background:none;padding:0"></div>`;
-  let look = `<h3>Look & feel</h3><div class="set-group">` + opt('Theme', '', themeSeg) + opt('Accent color', 'Dynamic picks a color from whatever is playing', accSeg) + opt('Accent swatch', '', sw) + opt('Animations', '', animSeg) + opt('Compact rows', 'Fit more songs on screen', tog('compact', S.compact)) + opt('Background glow', '', `<input type="range" min="0" max="1.5" step="0.05" value="${S.glow}" data-range="glow">`);
-  if (app.isDesktop) look += opt('Window transparency', 'See your desktop through the main window', `<input type="range" min="0.35" max="1" step="0.01" value="${S.winOpacity}" data-range="winOpacity"><span class="val">${Math.round(S.winOpacity * 100)}%</span>`);
-  look += opt('Blur inactive lyric lines', '', tog('blurLyrics', S.blurLyrics)) + '</div>';
+  // Theme studio
+  const segOf = (k, opts) => `<div class="seg" data-seg="${k}">${opts.map(([v, l]) => `<button data-v="${v}" class="${S[k] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const rng = (k, min, max, step, fmt) => `<input type="range" min="${min}" max="${max}" step="${step}" value="${S[k]}" data-range="${k}" data-fmt="${fmt}"><span class="val">${fmtVal(fmt, S[k])}</span>`;
+  const presets = `<div class="presets">${Object.entries(PRESETS).map(([k, p]) => `<button class="preset ${S.preset === k ? 'on' : ''}" data-preset="${k}" style="--pbg:${p.pv[0]};--pa:${p.pv[1]};--pb:${p.pv[2]};--pglass:${p.theme === 'light' ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.1)'}"><div class="pv"><i></i></div><b>${p.name}</b></button>`).join('')}</div>`;
+  const sw1 = `<div class="swatches">${ACCENTS.map((c) => `<button data-acc="${c}" style="background:${c}" class="${S.accent === c && S.accentMode === 'fixed' ? 'on' : ''}" title="${c}"></button>`).join('')}<label title="Any color"><input type="color" value="${S.accent}" data-acccustom></label></div>`;
+  const sw2 = `<div class="swatches"><button class="pill ${S.accent2 === 'auto' ? 'on' : ''}" data-acc2="auto" style="width:auto;height:28px;border-radius:999px;padding:0 12px;font-size:12px">Auto</button>${ACCENTS.map((c) => `<button data-acc2="${c}" style="background:${c}" class="${S.accent2 === c ? 'on' : ''}"></button>`).join('')}<label title="Any color"><input type="color" value="${S.accent2 === 'auto' ? '#22d3ee' : S.accent2}" data-acc2custom></label></div>`;
+  let look = `<h3>Theme studio</h3><div class="set-group">${presets}` +
+    opt('Mode', '', segOf('theme', [['dark', 'Dark'], ['midnight', 'Midnight'], ['black', 'Black'], ['light', 'Light'], ['auto', 'Auto']])) +
+    opt('Accent', 'From album art changes the whole look with every song', segOf('accentMode', [['dynamic', 'From album art'], ['fixed', 'My color']])) +
+    opt('Accent color', '', sw1) +
+    opt('Gradient partner', 'Second color for gradients, glows and the background', sw2) +
+    opt('Background', '', segOf('bgMode', [['aurora', 'Aurora'], ['art', 'Album art'], ['wallpaper', 'Wallpaper'], ['solid', 'Solid']])) +
+    (S.bgMode === 'wallpaper' ? opt('Wallpaper', 'Any photo — it sits behind the glass', `${S.wallpaper ? `<span class="wall-thumb" style="background-image:url(${S.wallpaper})"></span>` : ''}<button class="pill" data-wall>${ico('image')}${S.wallpaper ? 'Change' : 'Choose image'}</button>${S.wallpaper ? `<button class="ib sm" data-wallrm title="Remove">${ico('x')}</button>` : ''}`) : '') +
+    opt('Glass blur', 'How frosted the panels are', rng('blur', 0, 60, 1, 'px')) +
+    opt('Glass tint', 'More = solid panels, less = see-through', rng('glass', 0, 1, 0.01, 'pct')) +
+    opt('Background glow', '', rng('glow', 0, 1.6, 0.05, 'pct')) +
+    opt('Corner roundness', '', rng('radius', 4, 32, 1, 'px')) +
+    opt('Font', '', segOf('font', [['system', 'Clean'], ['rounded', 'Rounded'], ['serif', 'Editorial'], ['mono', 'Mono']]));
+  if (app.isDesktop) look += opt('Window transparency', 'See your desktop through the whole window', rng('winOpacity', 0.35, 1, 0.01, 'pct'));
+  look += '</div>';
+  look += `<h3>Motion & layout</h3><div class="set-group">` + opt('Animations', '', segOf('anim', [['full', 'Full'], ['low', 'Subtle'], ['off', 'Off']])) + opt('Compact rows', 'Fit more songs on screen', tog('compact', S.compact)) + opt('Blur inactive lyric lines', '', tog('blurLyrics', S.blurLyrics)) + '</div>';
   el.appendChild(h(`<div>${look}</div>`));
   // Playback
   let pb = `<h3>Playback</h3><div class="set-group">` +
@@ -700,8 +719,12 @@ R.settings = () => {
   el.addEventListener('click', async (e) => {
     const t = e.target;
     const tg = t.closest('[data-tog]'); if (tg) { const k = tg.dataset.tog; S[k] = !S[k]; tg.classList.toggle('on', S[k]); app.saveS(); applyTheme(); if (k === 'leveler') player.applyLeveler(); return; }
-    const sg = t.closest('.seg[data-seg] button'); if (sg) { const k = sg.parentElement.dataset.seg; S[k] = sg.dataset.v; $$('button', sg.parentElement).forEach((b) => b.classList.toggle('on', b === sg)); app.saveS(); applyTheme(); if (k === 'engine' && S.engine === 'on') player.enableEngine(); if (k === 'engine' && S.engine === 'off' && player.engineOn) toast('Restart Pulse to fully turn the engine off'); return; }
-    const ac = t.closest('[data-acc]'); if (ac) { S.accent = ac.dataset.acc; S.accentMode = 'fixed'; app.saveS(); applyTheme(); refresh(); return; }
+    const pr = t.closest('[data-preset]'); if (pr) { applyPreset(pr.dataset.preset); refresh(); return; }
+    const a2 = t.closest('[data-acc2]'); if (a2) { S.accent2 = a2.dataset.acc2; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }
+    if (t.closest('[data-wall]')) { const pic = await pickImage(); if (!pic) return; S.wallpaper = await shrinkImage(pic); S.bgMode = 'wallpaper'; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }
+    if (t.closest('[data-wallrm]')) { S.wallpaper = null; S.bgMode = 'aurora'; app.saveS(); applyTheme(); refresh(); return; }
+    const sg = t.closest('.seg[data-seg] button'); if (sg) { const k = sg.parentElement.dataset.seg; S[k] = sg.dataset.v; if (THEME_KEYS.includes(k)) S.preset = 'custom'; if (k === 'bgMode') { app.saveS(); applyTheme(); refresh(); return; } $$('button', sg.parentElement).forEach((b) => b.classList.toggle('on', b === sg)); app.saveS(); applyTheme(); if (k === 'engine' && S.engine === 'on') player.enableEngine(); if (k === 'engine' && S.engine === 'off' && player.engineOn) toast('Restart Pulse to fully turn the engine off'); return; }
+    const ac = t.closest('[data-acc]'); if (ac) { S.accent = ac.dataset.acc; S.accentMode = 'fixed'; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }
     if (t.closest('[data-addroot]')) { addFolder(); return; }
     if (t.closest('[data-spimp]')) { import('./spotify.js').then((m) => m.openSpotifyImport()); return; }
     if (t.closest('[data-rescanall]')) { toast('Rescanning…'); await lib.rescanAll(); toast('Library up to date'); refresh(); return; }
@@ -716,8 +739,9 @@ R.settings = () => {
     if (t.closest('[data-resetS]')) { if (await confirmBox('Reset settings?', 'Theme, sound and layout settings go back to default.', 'Reset')) { Object.assign(S, structuredClone(DEFAULTS)); app.saveS(); applyTheme(); player.applyEQ(); player.applyVolume(); refresh(); } }
   });
   el.addEventListener('input', (e) => {
-    const r = e.target.closest('[data-range]'); if (r) { const k = r.dataset.range; S[k] = +r.value; const v = r.nextElementSibling; if (v?.classList.contains('val')) v.textContent = k === 'crossfade' ? (S[k] ? S[k] + 's' : 'Off') : Math.round(S[k] * 100) + '%'; app.saveS(); applyTheme(); }
-    if (e.target.matches('[data-acccustom]')) { S.accent = e.target.value; S.accentMode = 'fixed'; app.saveS(); applyTheme(); }
+    const r = e.target.closest('[data-range]'); if (r) { const k = r.dataset.range; S[k] = +r.value; if (THEME_KEYS.includes(k)) { S.preset = 'custom'; $$('.preset.on', el).forEach((x) => x.classList.remove('on')); } const v = r.nextElementSibling; if (v?.classList.contains('val')) v.textContent = fmtVal(r.dataset.fmt || (k === 'crossfade' ? 's' : 'pct'), S[k]); app.saveS(); applyTheme(); }
+    if (e.target.matches('[data-acccustom]')) { S.accent = e.target.value; S.accentMode = 'fixed'; S.preset = 'custom'; app.saveS(); applyTheme(); }
+    if (e.target.matches('[data-acc2custom]')) { S.accent2 = e.target.value; S.preset = 'custom'; app.saveS(); applyTheme(); }
   });
   if (!app.isDesktop) app.P.storageInfo().then((i) => { const s = el.querySelector('#storageInfo'); if (s) s.textContent = i ? `Using ${fmtBytes(i.usage)} of ${fmtBytes(i.quota)} available` : 'Stored privately inside Pulse'; });
   return el;

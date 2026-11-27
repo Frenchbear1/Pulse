@@ -20,7 +20,8 @@ Both share one codebase: the web app lives at the repo root (served by GitHub Pa
 - 10-band EQ with 15 presets, preamp, volume leveler, crossfade (0–12 s), near-gapless preloading, speed 0.5–2× with pitch lock, sleep timer
 - Now Playing with blurred animated art, 3D-tilt cover, 3 visualizer styles
 - Mini player (Windows): bar, card, square, strip, cover-only; adjustable transparency, blur, corner radius, always-on-top
-- Dynamic accent color from the album art, dark/black/light themes, window transparency, compact mode
+- Glass design: floating frosted panels over a living background (aurora, blurred album art, your own wallpaper, or solid)
+- Theme Studio: 8 presets plus mode (dark/midnight/black/light/auto), accent from album art or any color, a gradient partner color, glass blur and tint, corner roundness, font style, glow, window transparency
 - Lock-screen / media-key controls (Media Session), tray icon, keyboard shortcuts
 - **Import from Spotify**: guided Exportify walkthrough; Pulse spots the export in your Downloads folder, matches every track against your local files (handles remasters, feat. credits, typos, ISRC), lets you review uncertain matches, rebuilds the playlists, and auto-fills missing songs when they appear in your music folder
 - Backup/restore of playlists, likes and play counts; M3U import/export
