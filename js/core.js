@@ -12,6 +12,8 @@ export const DEFAULTS = {
   mini: { layout: 'bar', opacity: 0.9, blur: 40, art: true, onTop: true, progress: true, times: true, radius: 14 },
   closeToTray: false, rescanOnStart: true, watch: true, showSplash: true
 };
+export const VERSION = '1.1.0';
+export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
   hist: [], hi: -1, view: null, params: null, views: {}, renderers: {},
@@ -262,6 +264,24 @@ export function slider(el, { get, set, preview, onEnd }) {
   el.addEventListener('pointerup', end); el.addEventListener('pointercancel', () => { dragging = false; el.classList.remove('drag'); });
   el.addEventListener('wheel', (e) => { e.preventDefault(); set(clamp(get() - Math.sign(e.deltaY) * 0.05, 0, 1)); }, { passive: false });
   return { isDragging: () => dragging, update: (v) => { if (!dragging) el.style.setProperty('--v', v); } };
+}
+
+// ---------- updates (GitHub Releases) ----------
+const verNum = (v) => String(v || '').replace(/^v/i, '').split('.').map((x) => parseInt(x, 10) || 0);
+export const isNewer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+export async function checkForUpdate(manual) {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!r.ok) return null; const j = await r.json(); const version = String(j.tag_name || '').replace(/^v/i, '');
+    app.S.lastUpdateCheck = Date.now(); app.saveS();
+    return { version, newer: isNewer(version, VERSION), url: j.html_url };
+  } catch { return null; }
+}
+// once a day on desktop, quietly tell you when a newer release exists
+export async function autoUpdateCheck() {
+  if (!app.isDesktop || Date.now() - (app.S.lastUpdateCheck || 0) < 20 * 3600 * 1000) return;
+  const u = await checkForUpdate(); if (!u?.newer) return;
+  const t = toast(`Pulse ${u.version} is available — open Settings to download`, 6000);
 }
 
 export { lib, player, toast };

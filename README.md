@@ -7,7 +7,7 @@ A lightweight, animated music player for your own song files.
 
 Both share one codebase: the web app lives at the repo root (served by GitHub Pages), and `desktop/` wraps it into the exe.
 
-**Download for Windows:** download [`download/Pulse.exe`](https://github.com/Frenchbear1/Pulse/raw/main/download/Pulse.exe).
+**Download for Windows:** grab the latest from [Releases](https://github.com/Frenchbear1/Pulse/releases/latest) — [`Pulse-Setup.exe`](https://github.com/Frenchbear1/Pulse/releases/latest/download/Pulse-Setup.exe) installs it with Start Menu/Desktop shortcuts and an uninstaller, or [`Pulse.exe`](https://github.com/Frenchbear1/Pulse/releases/latest/download/Pulse.exe) is the portable single file. Your current version is shown in Settings → Data → Version.
 **iPhone / iPad:** open https://frenchbear1.github.io/Pulse/ in Safari → Share → Add to Home Screen.
 
 ## Features
@@ -30,8 +30,9 @@ Both share one codebase: the web app lives at the repo root (served by GitHub Pa
 ```
 npm i -g @neutralinojs/neu
 cd desktop && neu update && cd ..
-./build.sh        # -> desktop/dist/Pulse.exe
+./build.sh        # -> desktop/dist/Pulse.exe and Pulse-Setup.exe (installer needs NSIS)
 ```
+The version number lives in `VERSION`; bump it before building a release.
 
 ## Web app hosting
 GitHub Pages serves the repo root (Settings → Pages → Deploy from a branch → `main` / `(root)`).

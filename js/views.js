@@ -1,5 +1,5 @@
 // All page views + the virtualized track list + track/playlist actions.
-import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS } from './core.js';
+import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS, VERSION, checkForUpdate } from './core.js';
 import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce } from './util.js';
 import { EQ_PRESETS } from './player.js';
 import { albumKeyOf, primaryArtist } from './library.js';
@@ -715,7 +715,7 @@ R.settings = () => {
     const keys = [['Space', 'Play / pause'], ['Shift + → / ←', 'Next / previous'], ['→ / ←', 'Seek 5s'], ['↑ / ↓', 'Volume'], ['M', 'Mute'], ['S', 'Shuffle'], ['R', 'Repeat'], ['L', 'Like current song'], ['Q', 'Queue'], ['Y', 'Lyrics'], ['F', 'Now Playing'], ['Ctrl + K or /', 'Search'], ['Ctrl + M', 'Mini player'], ['Ctrl + B', 'Sidebar'], ['Ctrl + ,', 'Settings'], ['Alt + ← / →', 'Back / forward'], ['Esc', 'Close overlays'], ['Ctrl + A', 'Select all songs']];
     el.appendChild(h(`<div><h3>Keyboard shortcuts</h3><div class="set-group"><div class="keys">${keys.map(([k, d]) => `<div><span>${d}</span><kbd>${k}</kbd></div>`).join('')}</div></div></div>`));
   }
-  el.appendChild(h(`<div><h3>Data</h3><div class="set-group">${opt('Backup library', 'Playlists, folders, likes and play counts as a JSON file', `<button class="pill" data-backup>${ico('export')}Export</button><button class="pill" data-restore>${ico('import')}Import</button>`)}${opt('Reset settings', 'Library is kept', `<button class="pill" data-resetS>Reset</button>`)}${opt('About', 'Pulse 1.0 — lightweight music player', '')}</div></div>`));
+  el.appendChild(h(`<div><h3>Data</h3><div class="set-group">${opt('Backup library', 'Playlists, folders, likes and play counts as a JSON file', `<button class="pill" data-backup>${ico('export')}Export</button><button class="pill" data-restore>${ico('import')}Import</button>`)}${opt('Reset settings', 'Library is kept', `<button class="pill" data-resetS>Reset</button>`)}${opt('Version', `Pulse ${VERSION}<span id="updInfo"></span>`, `<button class="pill" data-checkupd>${ico('refresh')}Check for updates</button>`)}</div></div>`));
 
   // wiring
   el.addEventListener('click', async (e) => {
@@ -728,6 +728,8 @@ R.settings = () => {
     const sg = t.closest('.seg[data-seg] button'); if (sg) { const k = sg.parentElement.dataset.seg; S[k] = sg.dataset.v; if (THEME_KEYS.includes(k)) S.preset = 'custom'; if (k === 'bgMode') { app.saveS(); applyTheme(); refresh(); return; } $$('button', sg.parentElement).forEach((b) => b.classList.toggle('on', b === sg)); app.saveS(); applyTheme(); if (k === 'engine' && S.engine === 'on') player.enableEngine(); if (k === 'engine' && S.engine === 'off' && player.engineOn) toast('Restart Pulse to fully turn the engine off'); return; }
     const ac = t.closest('[data-acc]'); if (ac) { S.accent = ac.dataset.acc; S.accentMode = 'fixed'; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }
     if (t.closest('[data-addroot]')) { addFolder(); return; }
+    if (t.closest('[data-checkupd]')) { const info = el.querySelector('#updInfo'); info.textContent = ' • checking…'; const u = await checkForUpdate(true); info.innerHTML = u === null ? ' • couldn\'t reach GitHub' : u.newer ? ` • <b style="color:rgb(var(--acc-rgb))">${esc(u.version)} is available</b> — <a data-openrel style="text-decoration:underline;cursor:pointer">download</a>` : ' • you\'re on the latest version'; return; }
+    if (t.closest('[data-openrel]')) { app.P.openURL(`https://github.com/${'Frenchbear1/Pulse'}/releases/latest`); return; }
     if (t.closest('[data-repaircovers]')) { toast('Looking for covers…'); const r = await window.__pulseRepair?.(true); if (r) toast(r.fixed ? `Found ${r.fixed} covers` : `No embedded art found in ${r.total} song${r.total === 1 ? '' : 's'}${lib.coverErrors[0] ? ' — ' + lib.coverErrors[0] : ''}`, 5000); refresh(); return; }
     if (t.closest('[data-spimp]')) { import('./spotify.js').then((m) => m.openSpotifyImport()); return; }
     if (t.closest('[data-rescanall]')) { toast('Rescanning…'); await lib.rescanAll(); toast('Library up to date'); refresh(); return; }

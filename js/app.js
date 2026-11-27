@@ -40,6 +40,7 @@ async function boot() {
       if (type === 'tray') ({ play: () => player.toggle(), next: () => player.next(), prev: () => player.prev(), show: () => P.win.show(), mini: () => { P.win.show(); NP.enterMini(); }, quit })[d]?.();
     });
     setTray();
+    setTimeout(() => import('./core.js').then((c) => c.autoUpdateCheck()), 8000);
     P.win.isMax().then((m) => document.body.classList.toggle('maxed', m)).catch(() => {});
   } else if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});

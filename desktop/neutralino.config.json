@@ -4,7 +4,7 @@
   "applicationName": "Pulse",
   "author": "David LaBarre",
   "description": "Pulse",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "defaultMode": "window",
   "port": 41730,
   "documentRoot": "/resources/",
@@ -14,8 +14,21 @@
   "tokenSecurity": "one-time",
   "dataLocation": "system",
   "storageLocation": "system",
-  "logging": { "enabled": false, "writeToLogFile": false },
-  "nativeAllowList": ["app.*", "os.*", "window.*", "filesystem.*", "server.*", "events.*", "storage.*", "clipboard.*", "computer.*"],
+  "logging": {
+    "enabled": false,
+    "writeToLogFile": false
+  },
+  "nativeAllowList": [
+    "app.*",
+    "os.*",
+    "window.*",
+    "filesystem.*",
+    "server.*",
+    "events.*",
+    "storage.*",
+    "clipboard.*",
+    "computer.*"
+  ],
   "modes": {
     "window": {
       "title": "Pulse",
