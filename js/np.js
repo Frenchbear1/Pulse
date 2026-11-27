@@ -385,7 +385,18 @@ export function miniCustomize() {
   m.addEventListener('input', (e) => { const r = e.target.closest('[data-mr]'); if (!r) return; const k = r.dataset.mr; M[k] = +r.value; r.nextElementSibling.textContent = k === 'opacity' ? Math.round(M[k] * 100) + '%' : M[k] + 'px'; app.saveS(); applyMini(); const pv = stage.querySelector('.miniplayer'); if (pv) { for (const v of ['--mini-a', '--mini-blur', '--mini-r', '--mini-art']) pv.style.setProperty(v, $('#mini').style.getPropertyValue(v)); } });
 }
 
-export function initNP() { wireNP(); if (app.isDesktop) wireMini(); }
+function wireMiniHandle() {
+  const mini = $('#mini');
+  // reveal the options handle only when the pointer comes close to it
+  const hov = mini.querySelector('.mini-hover');
+  mini.addEventListener('pointermove', (e) => {
+    const r = mini.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + 10;
+    const near = Math.abs(e.clientX - cx) < 70 && e.clientY - r.top < 34;
+    mini.classList.toggle('near', near || hov.matches(':hover'));
+  });
+  mini.addEventListener('pointerleave', () => { mini.classList.remove('near'); hov.classList.remove('open'); });
+}
+export function initNP() { wireNP(); wireMiniHandle(); if (app.isDesktop) wireMini(); }
 export function npTick() {
   if (npLyr?.sync) npLyr.sync(); if (panelLyrics?.sync) panelLyrics.sync();
 }

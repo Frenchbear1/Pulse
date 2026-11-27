@@ -669,24 +669,26 @@ body.mini-noart .mini-bg img { display: none; }
 .mini-times { display: flex; justify-content: space-between; font-size: 10.5px; color: rgba(255,255,255,.55); font-variant-numeric: tabular-nums; margin-top: -1px; }
 body.mini-noprog .mini-prog { display: none !important; }
 body.mini-notimes .mini-times { display: none !important; }
-/* one small button; hovering it reveals the rest */
-.mini-hover { position: absolute; top: 6px; right: 6px; z-index: 3; display: flex; flex-direction: row-reverse; align-items: center; gap: 2px; padding: 2px; border-radius: 12px; opacity: 0; transition: opacity .2s, background .2s; }
-.miniplayer:hover .mini-hover { opacity: 1; }
-.mini-hover .ib { width: 24px; height: 24px; border-radius: 8px; color: rgba(255,255,255,.75); } .mini-hover .ib svg { width: 14px; height: 14px; }
-.mini-hover .trig { background: rgba(0,0,0,.35); backdrop-filter: blur(10px); }
+/* a slim handle at the top-center; fades in only when the pointer comes near it */
+.mini-hover { position: absolute; top: 3px; left: 50%; transform: translate(-50%, -4px); z-index: 3; display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .25s var(--ease), background .2s; }
+.miniplayer.near .mini-hover, .mini-hover.open { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+.mini-hover .ib { width: 24px; height: 22px; border-radius: 7px; color: rgba(255,255,255,.8); } .mini-hover .ib svg { width: 14px; height: 14px; }
+.mini-hover .trig { width: 34px; height: 16px; border-radius: 8px; background: rgba(0,0,0,.38); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+.mini-hover .trig svg { width: 16px; height: 16px; }
 .mh-items { display: flex; gap: 2px; max-width: 0; overflow: hidden; opacity: 0; transition: max-width .3s var(--ease), opacity .2s; }
-.mini-hover:hover { background: rgba(0,0,0,.5); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
-.mini-hover:hover .mh-items, .mini-hover.open .mh-items { max-width: 140px; opacity: 1; }
-.mini-hover:hover .trig { background: transparent; }
+.mh-items.l { order: -1; }
+.mini-hover:hover, .mini-hover.open { background: rgba(0,0,0,.55); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+.mini-hover:hover .mh-items, .mini-hover.open .mh-items { max-width: 60px; opacity: 1; }
+.mini-hover:hover .trig, .mini-hover.open .trig { background: transparent; box-shadow: none; }
 .mini-hover .ib.on { color: rgb(var(--acc-rgb)); }
 .mini-drag { position: absolute; inset: 0; z-index: 0; }
 
 /* BAR: art | title | controls, progress underneath — grows into a full deck when taller */
-.miniplayer.l-bar .mini-content { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "art meta ctl" "art prog prog"; grid-template-rows: 1fr auto; padding: 10px 40px 8px 10px; gap: 0 12px; align-items: center; }
+.miniplayer.l-bar .mini-content { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "art meta ctl" "art prog prog"; grid-template-rows: 1fr auto; padding: 10px 12px 8px 10px; gap: 0 12px; align-items: center; }
 .l-bar .mini-art { grid-area: art; height: calc(100cqh - 20px); width: auto; max-width: 42cqw; }
 .l-bar .mini-meta { grid-area: meta; } .l-bar .mini-ctl { grid-area: ctl; } .l-bar .mini-prog { grid-area: prog; } .l-bar .mini-extra { grid-area: extra; }
 .l-bar .mini-ctl .ib[data-m="like"] { display: none; }
-@container (max-height: 76px) { .l-bar .mini-art { display: none; } .miniplayer.l-bar .mini-content { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "meta ctl" "prog prog"; padding: 6px 40px 4px 14px; } .l-bar .mini-times { display: none; } }
+@container (max-height: 76px) { .l-bar .mini-art { display: none; } .miniplayer.l-bar .mini-content { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "meta ctl" "prog prog"; padding: 6px 10px 4px 14px; } .l-bar .mini-times { display: none; } }
 @container (max-height: 54px) { .l-bar .mini-prog { display: none; } .miniplayer.l-bar .mini-content { grid-template-areas: "meta ctl"; grid-template-rows: 1fr; } }
 @container (min-height: 132px) {
   .miniplayer.l-bar .mini-content { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art meta" "art ctl" "art prog"; grid-template-rows: 1fr auto auto; padding: 12px 14px 10px 12px; gap: 4px 16px; }
@@ -718,14 +720,13 @@ body.mini-notimes .mini-times { display: none !important; }
 .miniplayer.l-square:hover .mini-meta, .miniplayer.l-square:hover .mini-ctl { opacity: 1; transform: none; }
 @container (max-width: 200px) { .l-square .mini-ctl .ib[data-m="like"] { display: none; } }
 /* STRIP: one slim line */
-.miniplayer.l-strip .mini-content { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; padding: 0 40px 0 6px; gap: 10px; }
+.miniplayer.l-strip .mini-content { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; padding: 0 12px 0 6px; gap: 10px; }
 .l-strip .mini-art { height: calc(100cqh - 14px); width: auto; border-radius: 7px; order: 1; }
 .l-strip .mini-ctl { order: 0; } .l-strip .mini-ctl .ib[data-m="like"], .l-strip .mini-ctl .ib[data-m="prev"] { display: none; }
 .l-strip .mini-ctl .pp { width: 30px; height: 30px; border-radius: 10px; } .l-strip .mini-ctl .pp svg { width: 16px; height: 16px; }
 .l-strip .mini-meta { order: 2; flex-direction: row; gap: 8px; align-items: baseline; justify-content: flex-start; overflow: hidden; } .l-strip .mini-meta small { flex: none; }
 .l-strip .mini-prog { position: absolute; left: 0; right: 0; bottom: 0; order: 3; } .l-strip .mini-times { display: none; }
 .l-strip .mini-prog .slider { height: 5px; } .l-strip .mini-prog .slider::before, .l-strip .mini-prog .slider .fill { height: 2px; margin-top: -1px; }
-.miniplayer.l-strip .mini-hover { top: 50%; margin-top: -14px; }
 @container (max-height: 34px) { .l-strip .mini-art { display: none; } }
 /* COVER ONLY */
 .miniplayer.l-art .mini-content { padding: 0; } .l-art .mini-art { position: absolute; inset: 0; border-radius: 0; box-shadow: none; aspect-ratio: auto; }
