@@ -3,6 +3,7 @@ import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, current
 import { $, $$, fmtTime, debounce, throttle, clamp } from './util.js';
 import { trackMenu, albumKey, treeEl, rerenderTrees, createMenu, importMusic, addFolder } from './views.js';
 import * as NP from './np.js';
+import { autoFill } from './spotify.js';
 
 const isDesktop = !!window.PULSE_DESKTOP;
 const mq = matchMedia('(max-width: 760px)');
@@ -158,7 +159,7 @@ function wireShell() {
     if (e === 'liked') { const t = player.track; if (t && t.id === d) { setLikeBtn($('#barLike'), lib.isLiked(d)); setLikeBtn($('#mbLike'), lib.isLiked(d)); NP.updateNP(); NP.updateMini(); } rerenderTreesSoon(); }
     if (e === 'nodes') rerenderTreesSoon();
     if (e === 'scan') { const pill = $('#scanPill'); if (d) { pill.classList.remove('hidden'); pill.querySelector('.txt').textContent = `${d.label} • ${d.done.toLocaleString()} / ${d.total.toLocaleString()}`; } else { pill.classList.add('hidden'); } }
-    if (e === 'index') { if (['home', 'songs', 'albums', 'artists', 'folders', 'library'].includes(app.view) && !$('.trow.sel')) refreshSoon(); }
+    if (e === 'index') { autoFill(); if (['home', 'songs', 'albums', 'artists', 'folders', 'library'].includes(app.view) && !$('.trow.sel')) refreshSoon(); }
   });
 
   // window controls (desktop)

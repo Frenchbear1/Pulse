@@ -67,7 +67,7 @@ export function currentColor() { const t = player.track; return t?.cover ? lib.d
 export function coverImg(key, small = true, cls = '') {
   if (!key) return '';
   const sync = app.P.coverURLSync(key, small);
-  if (sync) return `<img class="${cls}" src="${sync}" loading="lazy" decoding="async" alt="">`;
+  if (sync) return `<img class="${cls}" src="${sync}" loading="lazy" decoding="async" alt="" onload="this.classList.add('ok')">`;
   return `<img class="${cls} lazy" data-ck="${key}" data-cs="${small ? 1 : 0}" alt="" decoding="async">`;
 }
 const io = 'IntersectionObserver' in window ? new IntersectionObserver((ents) => { for (const e of ents) if (e.isIntersecting) { io.unobserve(e.target); loadLazy(e.target); } }, { rootMargin: '300px' }) : null;

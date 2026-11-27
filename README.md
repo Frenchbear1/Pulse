@@ -22,6 +22,7 @@ Both share one codebase: the web app lives at the repo root (served by GitHub Pa
 - Mini player (Windows): bar, card, square, strip, cover-only; adjustable transparency, blur, corner radius, always-on-top
 - Dynamic accent color from the album art, dark/black/light themes, window transparency, compact mode
 - Lock-screen / media-key controls (Media Session), tray icon, keyboard shortcuts
+- **Import from Spotify**: guided Exportify walkthrough; Pulse spots the export in your Downloads folder, matches every track against your local files (handles remasters, feat. credits, typos, ISRC), lets you review uncertain matches, rebuilds the playlists, and auto-fills missing songs when they appear in your music folder
 - Backup/restore of playlists, likes and play counts; M3U import/export
 
 ## Build the Windows exe

@@ -431,6 +431,7 @@ export function createMenu(at, parent = null) {
     { label: 'New playlist', icon: 'playlist', action: async () => { const n = await prompt('New playlist', '', 'My playlist'); if (n) { const x = lib.createNode('playlist', n, parent); go('node', { id: x.id }); } } },
     { label: 'New folder', icon: 'folder', action: async () => { const n = await prompt('New folder', '', 'Folder name'); if (n) lib.createNode('folder', n, parent); } },
     !parent && '-',
+    !parent && { label: 'Import from Spotify', icon: 'spark', action: () => import('./spotify.js').then((m) => m.openSpotifyImport()) },
     !parent && { label: 'Import M3U playlist', icon: 'import', action: importM3U },
     !parent && app.isDesktop && { label: 'Add music folder', icon: 'plus', action: addFolder },
     !parent && !app.isDesktop && { label: 'Import songs', icon: 'note', action: () => importMusic(false) },
@@ -516,6 +517,7 @@ export function nodeMenu(id, at) {
     { label: 'Edit details', icon: 'edit', action: () => editNode(id) },
     { label: 'Rename', icon: 'edit', action: async () => { const nm = await prompt('Rename', n.name); if (nm) { lib.renameNode(id, nm); rerenderTrees(); if (app.view === 'node') refresh(); } } },
     { label: 'Move to', icon: 'folder', sub: () => moveTargets(id) },
+    n.spotify && { label: 'Spotify matches & missing songs', icon: 'spark', action: () => import('./spotify.js').then((m) => m.openSpotifyReview(id)) },
     n.type === 'playlist' && { label: 'Generate AI cover prompt', icon: 'spark', action: () => aiPromptModal(id) },
     n.type === 'playlist' && { label: 'Export as M3U', icon: 'export', action: () => { const blob = new Blob([lib.exportM3U(id)], { type: 'audio/x-mpegurl' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = n.name + '.m3u'; a.click(); } },
     n.type === 'playlist' && { label: 'Duplicate', icon: 'copy', action: () => { lib.createNode('playlist', n.name + ' copy', n.parent, { tracks: [...n.tracks], desc: n.desc }); rerenderTrees(); } },
@@ -554,6 +556,12 @@ R.node = ({ id }) => {
     wireCards(p); el.appendChild(p);
   }
   const acts = el.querySelector('.actions');
+  if (n.spotify) {
+    const have = n.spotify.map.filter((x) => x && T(x)).length, total = n.spotify.items.length;
+    const bn = h(`<div class="sp-banner"><span class="sp-dot ${have === total ? 'full' : ''}"></span><div><b>From Spotify</b><small>${have} of ${total} songs in your library${have < total ? ` • ${total - have} missing${n.spotify.sync ? ' — filled in automatically when they show up' : ''}` : ' • complete'}</small></div><button class="pill" data-spr>${have < total ? 'See missing' : 'Review matches'}</button></div>`);
+    bn.querySelector('[data-spr]').onclick = () => import('./spotify.js').then((m) => m.openSpotifyReview(id));
+    acts.after(bn);
+  }
   acts.querySelector('[data-more]').onclick = (e) => nodeMenu(id, { el: e.currentTarget });
   acts.querySelector('[data-addsongs]')?.addEventListener('click', () => { const x = el.querySelector('.add-songs'); if (x) x.scrollIntoView({ behavior: 'smooth' }); else { el.appendChild(addSongsPanel(id)); el.lastChild.scrollIntoView({ behavior: 'smooth' }); } });
   acts.querySelector('[data-newin]')?.addEventListener('click', (e) => { createMenu({ el: e.currentTarget }, id); });
@@ -652,6 +660,7 @@ R.settings = () => {
   if (app.isDesktop) {
     libHTML += roots.filter((r) => r.path).map((r) => `<div class="root-row"><span class="sw">${ico('folder')}</span><div class="p"><b>${esc(r.name)}</b><small>${esc(r.path)} • ${plural(Object.values(lib.db.tracks).filter((t) => t.root === r.id).length, 'song')}</small></div><button class="ib" data-rescan="${r.id}" title="Rescan">${ico('refresh')}</button><button class="ib" data-rmroot="${r.id}" title="Remove from library">${ico('x')}</button></div>`).join('');
     libHTML += `<div class="root-row"><button class="pill solid" data-addroot>${ico('plus')}Add music folder</button><button class="pill" data-rescanall>${ico('refresh')}Rescan all</button></div>`;
+    libHTML += opt('Import from Spotify', 'Rebuild your Spotify playlists from songs you already have (via Exportify)', `<button class="pill" data-spimp>${ico('spark')}Start</button>`);
     libHTML += opt('Watch folders for changes', 'New or deleted files show up automatically', tog('watch', S.watch));
     libHTML += opt('Quick rescan on startup', 'Checks for added/removed files in the background after launch', tog('rescanOnStart', S.rescanOnStart));
   } else {
@@ -694,6 +703,7 @@ R.settings = () => {
     const sg = t.closest('.seg[data-seg] button'); if (sg) { const k = sg.parentElement.dataset.seg; S[k] = sg.dataset.v; $$('button', sg.parentElement).forEach((b) => b.classList.toggle('on', b === sg)); app.saveS(); applyTheme(); if (k === 'engine' && S.engine === 'on') player.enableEngine(); if (k === 'engine' && S.engine === 'off' && player.engineOn) toast('Restart Pulse to fully turn the engine off'); return; }
     const ac = t.closest('[data-acc]'); if (ac) { S.accent = ac.dataset.acc; S.accentMode = 'fixed'; app.saveS(); applyTheme(); refresh(); return; }
     if (t.closest('[data-addroot]')) { addFolder(); return; }
+    if (t.closest('[data-spimp]')) { import('./spotify.js').then((m) => m.openSpotifyImport()); return; }
     if (t.closest('[data-rescanall]')) { toast('Rescanning…'); await lib.rescanAll(); toast('Library up to date'); refresh(); return; }
     const rs = t.closest('[data-rescan]'); if (rs) { const r = roots.find((x) => x.id === rs.dataset.rescan); toast('Rescanning ' + r.name); await lib.rescan(r); refresh(); return; }
     const rm = t.closest('[data-rmroot]'); if (rm) { const r = roots.find((x) => x.id === rm.dataset.rmroot); if (await confirmBox('Remove folder?', `"${r.name}" will be removed from Pulse. Files on disk stay untouched.`, 'Remove')) { app.P.unwatchRoot?.(r); await lib.removeRoot(r.id); refresh(); } return; }

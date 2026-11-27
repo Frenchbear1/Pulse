@@ -96,7 +96,7 @@ export const lib = {
     const t = Object.assign({}, stub, {
       title: tags.title || stub.name, artist: tags.artist || '', albumArtist: tags.albumArtist || '', album: tags.album || (stub.dirs?.length ? stub.dirs[stub.dirs.length - 1] : ''),
       year: tags.year || 0, genre: tags.genre || '', track: tags.track || 0, disc: tags.disc || 0, duration: tags.duration || 0,
-      bitrate: tags.bitrate || 0, sampleRate: tags.sampleRate || 0, bitDepth: tags.bitDepth || 0, composer: tags.composer || '', bpm: tags.bpm || 0,
+      bitrate: tags.bitrate || 0, sampleRate: tags.sampleRate || 0, bitDepth: tags.bitDepth || 0, composer: tags.composer || '', bpm: tags.bpm || 0, isrc: tags.isrc || '',
       size: r.size, added: stub.added || Date.now(), cover: null, hasLyrics: !!tags.lyrics || !!stub.lrc
     });
     if (tags.lyrics) this.db.lyrics[t.id] = tags.lyrics;

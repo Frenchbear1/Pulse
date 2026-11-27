@@ -104,6 +104,7 @@ async function readID3v2(r, out) {
       case 'TCOM': out.composer ||= text(); break;
       case 'TBPM': out.bpm ||= num(text()); break;
       case 'TLEN': out._tlen ||= num(text()) / 1000; break;
+      case 'TSRC': out.isrc ||= text().toUpperCase().replace(/[^A-Z0-9]/g, ''); break;
       case 'USLT': {
         const enc = f[0]; const e = findTerm(f, 4, enc);
         const t = decodeText(enc, f.subarray(e + termLen(enc)));
@@ -202,6 +203,7 @@ function vorbisComments(b, o, out) {
       case 'COMPOSER': out.composer ||= v; break;
       case 'LYRICS': case 'UNSYNCEDLYRICS': out.lyrics ||= v; break;
       case 'BPM': out.bpm ||= num(v); break;
+      case 'ISRC': out.isrc ||= v.toUpperCase().replace(/[^A-Z0-9]/g, ''); break;
       case 'METADATA_BLOCK_PICTURE': if (!out.picture) { try { const bin = Uint8Array.from(atob(v), c => c.charCodeAt(0)); flacPicture(bin, 0, out); } catch {} } break;
     }
   }

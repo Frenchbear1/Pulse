@@ -138,6 +138,24 @@ export function createDesktopPlatform() {
       notify: (title, body) => N().os.showNotification(title, body).catch(() => {}),
       openURL: (u) => N().os.open(u)
     },
+    // Recent Exportify downloads (CSV / ZIP) in the user's Downloads folder
+    async findExports(sinceMs = 1000 * 60 * 60 * 24 * 3) {
+      let dir; try { dir = (await N().os.getPath('downloads')).replace(/\\/g, '/'); } catch { return []; }
+      let entries = []; try { entries = await N().filesystem.readDirectory(dir); } catch { return []; }
+      const out = [];
+      for (const e of entries) {
+        if (e.type !== 'FILE' || !/\.(csv|zip)$/i.test(e.entry)) continue;
+        const path = e.path.replace(/\\/g, '/');
+        try {
+          const st = await N().filesystem.getStats(path);
+          if (Date.now() - st.modifiedAt > sinceMs || st.size > 200 * 1024 * 1024) continue;
+          out.push({ name: e.entry, path, size: st.size, mtime: st.modifiedAt });
+        } catch {}
+      }
+      return out.sort((a, b) => b.mtime - a.mtime).slice(0, 12);
+    },
+    async readFileBytes(path) { return new Uint8Array(await N().filesystem.readBinaryFile(path)); },
+    openURL(u) { return N().os.open(u); },
     async storageInfo() { return null; },
     async writeClipboard(t) { try { await N().clipboard.writeText(t); return true; } catch { return false; } }
   };
