@@ -88,6 +88,7 @@ export function createDesktopPlatform() {
         return { id: hashStr(root.id + '|' + f.rel), root: root.id, rel: f.rel, name: f.name, dirs: f.dir ? f.dir.split('/') : [], lrc: lrc.has(l.toLowerCase()) ? l : null, folderArt: art.get(f.dir)?.rel || null };
       });
     },
+    async stat(t) { const root = p.roots.get(t.root); if (!root) throw new Error('root not mounted'); const st = await N().filesystem.getStats(root.path + '/' + t.rel); return { size: st.size, mtime: st.modifiedAt }; },
     trackURL(t) { return location.origin + '/m_' + t.root + '/' + t.rel.split('/').map(encodeURIComponent).join('/'); },
     audioURL(t) { return Promise.resolve(p.trackURL(t)); },
     releaseAudio() {},

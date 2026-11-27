@@ -400,6 +400,7 @@ export function initNP() { wireNP(); wireMiniHandle(); if (app.isDesktop) wireMi
 export function npTick() {
   if (npLyr?.sync) npLyr.sync(); if (panelLyrics?.sync) panelLyrics.sync();
 }
+export function refreshArt() { lastNPTrack = null; lastMini = null; updateNP(); updateMini(); if (app.S.panel) drawPanel(); }
 export function onTrackChange() {
   if (app.S.panel === 'lyrics' || app.S.panel === 'info' || app.S.panel === 'queue') drawPanel();
   updateNP(); updateMini();

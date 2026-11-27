@@ -97,6 +97,7 @@ export function createWebPlatform() {
     },
     coverURLSync() { return null; },
     async findExports() { return []; },
+    async stat() { return null; },
     openURL(u) { window.open(u, '_blank', 'noopener'); },
     async storageInfo() { try { return await navigator.storage.estimate(); } catch { return null; } },
     async writeClipboard(t) { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } },

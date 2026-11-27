@@ -1,6 +1,7 @@
 // Pulse — boot + shell wiring
-import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, currentColor, setBgArt, go, back, fwd, refresh, refreshSoon, markNav, menu, closeLayer, setImg, setLikeBtn, burst, marquee, slider, ico } from './core.js';
-import { $, $$, fmtTime, debounce, throttle, clamp } from './util.js';
+import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, currentColor, setBgArt, coverImg, hydrate, go, back, fwd, refresh, refreshSoon, markNav, menu, closeLayer, setImg, setLikeBtn, burst, marquee, slider, ico } from './core.js';
+import { $, $$, fmtTime, debounce, throttle, clamp, norm } from './util.js';
+import { albumKeyOf, primaryArtist } from './library.js';
 import { trackMenu, albumKey, treeEl, rerenderTrees, createMenu, importMusic, addFolder } from './views.js';
 import * as NP from './np.js';
 import { autoFill } from './spotify.js';
@@ -31,7 +32,7 @@ async function boot() {
 
   // desktop: background rescan + folder watching
   if (isDesktop) {
-    setTimeout(async () => { if (app.S.rescanOnStart) await lib.rescanAll().catch((e) => console.warn(e)); if (app.S.watch) lib.db.roots.forEach((r) => P.watchRoot(r)); autoRepairCovers(); }, 900);
+    setTimeout(async () => { if (app.S.rescanOnStart) await lib.rescanAll().catch((e) => console.warn(e)); if (app.S.watch) lib.db.roots.forEach((r) => P.watchRoot(r)); lib.wantCovers(Object.keys(lib.db.tracks), false); }, 900);
     P.on((type, d) => {
       if (type === 'fschange' && app.S.watch) lib.rescanAll();
       if (type === 'close') { if (app.S.closeToTray) P.win.hide(); else quit(); }
@@ -146,11 +147,11 @@ function wireShell() {
   // player events
   player.on((e) => {
     if (e === 'time') updateTime();
-    else if (e === 'track') { updateBar(); NP.onTrackChange(); rerenderTreesSoon(); saveSessionSoon(); setTraySoon(); }
+    else if (e === 'track') { prioritizeCovers(); updateBar(); NP.onTrackChange(); rerenderTreesSoon(); saveSessionSoon(); setTraySoon(); }
     else if (e === 'state') { updateState(); NP.updateNP(); NP.updateMini(); setTraySoon(); if (!player.playing) saveSession(); }
     else if (e === 'mode') updateModes();
     else if (e === 'volume') updateVolume();
-    else if (e === 'queue') { NP.onQueueChange(); saveSessionSoon(); }
+    else if (e === 'queue') { NP.onQueueChange(); saveSessionSoon(); prioritizeCovers(); }
     else if (e === 'settings') app.saveS();
     else if (e === 'error') toast("Couldn't play that file — skipping");
     else if (e === 'sleepDone') toast('Sleep timer: paused playback');
@@ -161,6 +162,8 @@ function wireShell() {
     if (e === 'nodes') rerenderTreesSoon();
     if (e === 'scan') { const pill = $('#scanPill'); if (d) { pill.classList.remove('hidden'); pill.querySelector('.txt').textContent = `${d.label} • ${d.done.toLocaleString()} / ${d.total.toLocaleString()}`; } else { pill.classList.add('hidden'); if (pendingRefresh) { pendingRefresh = false; quietRefresh(); } } }
     // Library changes land in the background: never re-render mid-scan, refresh once quietly at the end
+    if (e === 'cover') { patchCover(d); return; }
+    if (e === 'index' && d?.quiet) return;
     if (e === 'index') { autoFill(); if (['home', 'songs', 'albums', 'artists', 'folders', 'library', 'search'].includes(app.view)) { if (lib.scanning || repairing) pendingRefresh = true; else quietRefresh(); } }
   });
 
@@ -240,14 +243,28 @@ function wireShell() {
 // ---------- background helpers ----------
 let pendingRefresh = false, repairing = false;
 const quietRefresh = debounce(() => { if ($('#layer').children.length || $('.trow.sel')) { pendingRefresh = true; return; } const v = $('#view'); v.classList.add('quiet'); refresh(); setTimeout(() => v.classList.remove('quiet'), 600); }, 400);
-export async function autoRepairCovers(force) {
-  const missing = Object.values(lib.db.tracks).filter((t) => !t.cover).length;
-  if (!missing || repairing || (!force && app.S.coverRepairV === 2)) return null;
-  repairing = true; const pill = $('#scanPill');
-  pill.classList.remove('hidden');
+// Covers: the song you're on and what's queued next always go first
+function prioritizeCovers() {
+  const ids = [player.current, ...player.upNext.slice(0, 30), ...player.upcomingContext(30).map((x) => x.id)].filter(Boolean);
+  if (ids.length) lib.wantCovers(ids, true);
+}
+// Fill a newly found cover into whatever is on screen — no page redraw
+function patchCover({ id, key }) {
+  const t = lib.track(id); if (!t) return;
+  const esc = (v) => (window.CSS?.escape ? CSS.escape(v) : v.replace(/"/g, '\\"'));
+  if (id === player.current) { updateBar(); NP.refreshArt(); }
+  for (const th of document.querySelectorAll(`.trow[data-id="${esc(id)}"] .th, .qrow[data-id="${esc(id)}"] .th`)) { if (!th.querySelector('img')) { th.innerHTML = coverImg(key, true); hydrate(th); } }
+  const ak = albumKeyOf(t), ar = norm(primaryArtist(t.artist) || '');
+  for (const cv of document.querySelectorAll(`[data-album="${esc(ak)}"] .cv, [data-album="${esc(ak)}"] .sw, [data-artist="${esc(ar)}"] .cv`)) {
+    if (cv.querySelector('img')) continue; cv.querySelector(':scope > svg')?.remove(); cv.insertAdjacentHTML('afterbegin', coverImg(key, false)); hydrate(cv);
+  }
+  if (app.view === 'album' && app.params?.key === ak) { const ha = document.querySelector('.hero-art'); if (ha && !ha.querySelector('img')) { ha.querySelector(':scope > svg')?.remove(); ha.insertAdjacentHTML('afterbegin', coverImg(key, false)); hydrate(ha); } }
+}
+export async function autoRepairCovers() {
+  const pill = $('#scanPill'); pill.classList.remove('hidden'); repairing = true;
   const res = await lib.repairCovers((d, t) => { pill.querySelector('.txt').textContent = `Finding covers • ${d.toLocaleString()} / ${t.toLocaleString()}`; }).catch((e) => { console.warn(e); return null; });
-  repairing = false; pill.classList.add('hidden'); app.S.coverRepairV = 2; app.saveS();
-  if (res?.fixed) { toast(`Found covers for ${res.fixed.toLocaleString()} song${res.fixed === 1 ? '' : 's'}`); quietRefresh(); updateBar(); }
+  repairing = false; if (!lib.scanning) pill.classList.add('hidden');
+  if (res?.fixed) updateBar();
   return res;
 }
 window.__pulseRepair = autoRepairCovers;

@@ -50,7 +50,7 @@ export function trackList(ids, o = {}) {
     for (let i = first; i <= last; i++) {
       if (rows.has(i)) continue;
       const el = document.createElement('div'); el.className = 'trow' + (sel.has(i) ? ' sel' : '') + (ids[i] === player.current ? ' cur' : '');
-      el.dataset.i = i; el.style.top = i * RH + 'px'; el.draggable = !app.isMobile; el.innerHTML = rowHTML(i);
+      el.dataset.i = i; el.dataset.id = ids[i]; el.style.top = i * RH + 'px'; el.draggable = !app.isMobile; el.innerHTML = rowHTML(i);
       v.appendChild(el); rows.set(i, el); hydrate(el);
     }
   };

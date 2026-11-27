@@ -24,7 +24,7 @@ export const lib = {
   track(id) { return this.db.tracks[id]; },
   get allTracks() { return Object.values(this.db.tracks); },
 
-  reindex() {
+  reindex(quiet) {
     const albums = new Map(), artists = new Map(), genres = new Map(), search = new Map();
     const folders = { name: 'Folders', children: new Map(), tracks: [], key: '' };
     for (const t of Object.values(this.db.tracks)) {
@@ -51,7 +51,7 @@ export const lib = {
     }
     for (const al of albums.values()) al.tracks.sort((a, b) => { const x = this.db.tracks[a], y = this.db.tracks[b]; return (x.disc || 1) - (y.disc || 1) || (x.track || 0) - (y.track || 0) || sortKey(x.title).localeCompare(sortKey(y.title)); });
     this.idx = { albums, artists, genres, folders, search };
-    this.emit('index');
+    this.emit('index', quiet ? { quiet: true } : null);
   },
   folderNode(key) {
     let n = this.idx.folders; if (!key) return n;
@@ -75,25 +75,16 @@ export const lib = {
   // ----- scanning (desktop) / importing (web) -----
   coverJobs: new Map(),
   coverErrors: [],
-  // Retry art for songs that ended up without a cover (e.g. a failed first scan)
+  // Manual "find missing covers": clears give-up marks and waits for the queue to drain
   async repairCovers(onProgress) {
-    const todo = Object.values(this.db.tracks).filter((t) => !t.cover);
-    let fixed = 0, done = 0;
-    if (!todo.length) return { fixed, total: 0 };
-    this.coverJobs = new Map([...this.coverJobs].filter(([k]) => this.db.covers[k]));
-    await pool(todo, this.P.kind === 'web' ? 2 : 4, async (t) => {
-      try {
-        const r = await this.P.reader(t); const tags = await readTags(r, t.name);
-        if (tags.picture) t.cover = await this.ensureCover(hashBytes(tags.picture.data), async () => tags.picture);
-        if (!t.cover && t.folderArt) t.cover = await this.ensureCover(hashStr((t.root || '') + '|' + (t.dirs || []).join('/') + '|' + t.folderArt), () => this.P.readFolderArt(t));
-        if (!t.lyrics && tags.lyrics && !this.db.lyrics[t.id]) { this.db.lyrics[t.id] = tags.lyrics; t.hasLyrics = true; }
-        if (tags.isrc && !t.isrc) t.isrc = tags.isrc;
-        if (t.cover) fixed++;
-      } catch (e) { this.coverErrors.unshift(String(e?.message || e)); this.coverErrors.length = Math.min(this.coverErrors.length, 5); }
-      done++; onProgress?.(done, todo.length);
-    });
-    if (fixed) { this.reindex(); await this.saveNow(); }
-    return { fixed, total: todo.length };
+    const todo = Object.values(this.db.tracks).filter((t) => !t.cover).map((t) => t.id);
+    if (!todo.length) return { fixed: 0, total: 0 };
+    const Q = this.coverQ; for (const id of todo) Q.tried.delete(id);
+    const f0 = Q.found, d0 = Q.done;
+    this.wantCovers(todo, false);
+    await new Promise((res) => { const iv = setInterval(() => { onProgress?.(Math.min(todo.length, Q.done - d0), todo.length); if (!Q.high.length && !Q.low.length && !Q.running) { clearInterval(iv); res(); } }, 300); });
+    this.reindex(true); await this.saveNow();
+    return { fixed: Q.found - f0, total: todo.length };
   },
   async ensureCover(key, getBytes) {
     if (this.db.covers[key]) return key;
@@ -118,7 +109,7 @@ export const lib = {
       title: tags.title || stub.name, artist: tags.artist || '', albumArtist: tags.albumArtist || '', album: tags.album || (stub.dirs?.length ? stub.dirs[stub.dirs.length - 1] : ''),
       year: tags.year || 0, genre: tags.genre || '', track: tags.track || 0, disc: tags.disc || 0, duration: tags.duration || 0,
       bitrate: tags.bitrate || 0, sampleRate: tags.sampleRate || 0, bitDepth: tags.bitDepth || 0, composer: tags.composer || '', bpm: tags.bpm || 0, isrc: tags.isrc || '',
-      size: r.size, added: stub.added || Date.now(), cover: null, hasLyrics: !!tags.lyrics || !!stub.lrc
+      size: r.size, mtime: stub.mtime || 0, added: stub.added || Date.now(), cover: null, hasLyrics: !!tags.lyrics || !!stub.lrc
     });
     if (tags.lyrics) this.db.lyrics[t.id] = tags.lyrics;
     if (tags.picture) t.cover = await this.ensureCover(hashBytes(tags.picture.data), async () => tags.picture);
@@ -142,7 +133,7 @@ export const lib = {
     this.emit('scan', st);
     const flush = debounce(() => { this.reindex(); this.save(); }, 600);
     await pool(stubs, this.P.kind === 'web' ? 3 : 6, async (s) => {
-      try { if (commit) await commit(s); const t = await this.parseInto(s); this.db.tracks[t.id] = t; }
+      try { if (commit) await commit(s); const t = await this.parseInto(s); this.db.tracks[t.id] = t; if (t.cover) this.emit('cover', { id: t.id, key: t.cover }); }
       catch (e) { console.warn('parse failed', s.rel, e); }
       st.done++; this.emit('scan', st); flush();
     });
@@ -154,21 +145,88 @@ export const lib = {
     this.db.roots.push(root); await this.rescan(root);
   },
   async rescanAll() { for (const r of this.db.roots) if (r.path) await this.rescan(r); },
+  STABLE_MS: 6000,
   async rescan(root) {
-    if (this.P.kind !== 'desktop' || this._rescanning) return;
+    if (this.P.kind !== 'desktop') return;
+    if (this._rescanning) { this._rescanAgain = true; return; } // something changed mid-scan: run again after
     this._rescanning = true;
+    let retryLater = false;
     try {
       const stubs = await this.P.listRoot(root);
       const have = new Set(stubs.map((s) => s.id));
       const gone = Object.values(this.db.tracks).filter((t) => t.root === root.id && !have.has(t.id)).map((t) => t.id);
-      // refresh sidecar info on existing tracks cheaply
-      for (const s of stubs) { const t = this.db.tracks[s.id]; if (t) { t.lrc = s.lrc; if (s.lrc) t.hasLyrics = true; } }
+      for (const s of stubs) { const t = this.db.tracks[s.id]; if (t) { t.lrc = s.lrc; if (s.lrc) t.hasLyrics = true; if (s.folderArt) t.folderArt = s.folderArt; } }
       if (gone.length) { this.removeTracks(gone); await this.gcCovers(); }
-      const fresh = stubs.filter((s) => !this.db.tracks[s.id]);
-      if (fresh.length) await this.runJobs(fresh, 'Scanning ' + root.name);
+      const now = Date.now(), ready = [];
+      // 1) new files: only read once they've stopped changing (downloaders add tags/cover after the audio)
+      await pool(stubs.filter((s) => !this.db.tracks[s.id]), 8, async (s) => {
+        const st = await this.P.stat(s).catch(() => null); if (!st) return;
+        s.mtime = st.mtime; s.size = st.size;
+        if (now - st.mtime < this.STABLE_MS) retryLater = true; else ready.push(s);
+      });
+      // 2) known files that changed since we read them (e.g. cover embedded later) get read again
+      const check = Object.values(this.db.tracks).filter((t) => t.root === root.id && have.has(t.id) && (!t.cover || !t.mtime || now - (t.added || 0) < 30 * 60000));
+      await pool(check, 8, async (t) => {
+        const st = await this.P.stat(t).catch(() => null); if (!st) return;
+        if (!t.mtime && t.cover) { t.mtime = st.mtime; t.size = st.size; return; } // older entry that's fine: just remember its stamp
+        if (st.mtime === t.mtime && st.size === t.size) return;
+        if (now - st.mtime < this.STABLE_MS) { retryLater = true; return; }
+        ready.push({ id: t.id, root: t.root, rel: t.rel, name: t.name, dirs: t.dirs, lrc: t.lrc, folderArt: t.folderArt, added: t.added, mtime: st.mtime, size: st.size, _reread: true });
+      });
+      if (ready.length) await this.runJobs(ready, 'Scanning ' + root.name);
       else if (gone.length) { this.reindex(); await this.saveNow(); }
       this.P.watchRoot?.(root);
-    } finally { this._rescanning = false; }
+    } finally {
+      this._rescanning = false;
+      if (this._rescanAgain) { this._rescanAgain = false; setTimeout(() => this.rescanAll(), 300); }
+      else if (retryLater) { clearTimeout(this._retryT); this._retryT = setTimeout(() => this.rescanAll(), this.STABLE_MS + 800); }
+      this.wantCovers(Object.keys(this.db.tracks), false);
+    }
+  },
+
+  // ----- cover queue: runs alongside scans; current song + queue jump the line -----
+  coverQ: { high: [], low: [], queued: new Set(), active: new Set(), running: 0, tried: new Map(), done: 0, found: 0 },
+  wantCovers(ids, high) {
+    const Q = this.coverQ;
+    for (const id of ids) {
+      const t = this.db.tracks[id]; if (!t || t.cover) continue;
+      const tr = Q.tried.get(id); if (tr && tr.mtime === t.mtime && tr.n >= 2) continue; // gave up on this exact file version
+      if (Q.active.has(id)) continue; // already being worked on
+      if (Q.queued.has(id)) { if (high && !Q.high.includes(id)) { Q.low = Q.low.filter((x) => x !== id); Q.high.push(id); } continue; }
+      Q.queued.add(id); (high ? Q.high : Q.low).push(id);
+    }
+    if (high && Q.high.length > 1) { const order = new Map(ids.map((id, i) => [id, i])); Q.high.sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9)); }
+    this.pumpCovers();
+  },
+  pumpCovers() {
+    const Q = this.coverQ; const max = this.P.kind === 'web' ? 2 : 3;
+    // priority songs get two reserved slots so they never wait behind the library backlog
+    while ((Q.high.length && Q.running < max + 2) || (Q.low.length && Q.running < max)) {
+      const id = Q.high.length ? Q.high.shift() : Q.low.shift();
+      Q.running++; Q.active.add(id);
+      this.coverOne(id).catch(() => {}).finally(() => { Q.running--; Q.queued.delete(id); Q.active.delete(id); if (!Q.high.length && !Q.low.length && !Q.running) this.emit('coversIdle'); this.pumpCovers(); });
+    }
+  },
+  async coverOne(id) {
+    const t = this.db.tracks[id]; if (!t || t.cover) return;
+    const Q = this.coverQ;
+    try {
+      const r = await this.P.reader(t); const tags = await readTags(r, t.name);
+      let key = null;
+      if (tags.picture) key = await this.ensureCover(hashBytes(tags.picture.data), async () => tags.picture);
+      if (!key && t.folderArt && this.P.kind === 'desktop') key = await this.ensureCover(hashStr((t.root || '') + '|' + (t.dirs || []).join('/') + '|' + t.folderArt), () => this.P.readFolderArt(t));
+      // pick up tags that weren't there on the first read too
+      if (tags.title && (t.title === t.name || !t.artist)) { t.title = tags.title; t.artist = tags.artist || t.artist; t.album = tags.album || t.album; t.albumArtist = tags.albumArtist || t.albumArtist; t.year = tags.year || t.year; t.genre = tags.genre || t.genre; t.track = tags.track || t.track; }
+      if (tags.lyrics && !this.db.lyrics[id]) { this.db.lyrics[id] = tags.lyrics; t.hasLyrics = true; }
+      if (tags.isrc && !t.isrc) t.isrc = tags.isrc;
+      if (key && this.db.tracks[id]) {
+        t.cover = key; Q.found++; this.save(); this.emit('cover', { id, key });
+        this._coverReindex ||= debounce(() => this.reindex(true), 1500); this._coverReindex();
+      } else { const tr = Q.tried.get(id); Q.tried.set(id, { mtime: t.mtime, n: tr && tr.mtime === t.mtime ? tr.n + 1 : 1 }); }
+    } catch (e) {
+      this.coverErrors.unshift(String(e?.message || e)); this.coverErrors.length = Math.min(this.coverErrors.length, 5);
+      const tr = Q.tried.get(id); Q.tried.set(id, { mtime: t.mtime, n: (tr?.n || 0) + 1 });
+    } finally { Q.done++; }
   },
   async removeRoot(rootId) {
     this.db.roots = this.db.roots.filter((r) => r.id !== rootId);
