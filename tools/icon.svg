@@ -2,15 +2,15 @@
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#17171f"/><stop offset="1" stop-color="#07070a"/></linearGradient>
     <linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#1ed760"/><stop offset=".55" stop-color="#22d3ee"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
-    <radialGradient id="glow" cx=".5" cy=".62" r=".5"><stop offset="0" stop-color="#1ed760" stop-opacity=".35"/><stop offset="1" stop-color="#1ed760" stop-opacity="0"/></radialGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#1ed760" stop-opacity=".35"/><stop offset="1" stop-color="#1ed760" stop-opacity="0"/></radialGradient>
   </defs>
   <rect width="512" height="512" rx="116" fill="url(#bg)"/>
   <rect width="512" height="512" rx="116" fill="url(#glow)"/>
   <g fill="url(#g)">
-    <rect x="118" y="214" width="46" height="132" rx="23"/>
-    <rect x="198" y="142" width="46" height="276" rx="23"/>
-    <rect x="278" y="182" width="46" height="196" rx="23"/>
-    <rect x="358" y="236" width="46" height="88" rx="23"/>
+    <rect x="113" y="190" width="46" height="132" rx="23"/>
+    <rect x="193" y="118" width="46" height="276" rx="23"/>
+    <rect x="273" y="158" width="46" height="196" rx="23"/>
+    <rect x="353" y="212" width="46" height="88" rx="23"/>
   </g>
   <rect x="1.5" y="1.5" width="509" height="509" rx="115" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="3"/>
 </svg>

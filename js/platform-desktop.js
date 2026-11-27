@@ -6,6 +6,14 @@ import { hashStr, cachedReader, debounce } from './util.js';
 const N = () => window.Neutralino;
 const IMG_NAMES = ['cover', 'folder', 'front', 'album', 'albumart', 'albumartsmall'];
 
+let _db;
+const idb = () => (_db ||= new Promise((res, rej) => { const r = indexedDB.open('pulse-covers', 1); r.onupgradeneeded = () => r.result.createObjectStore('c'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
+const idbOp = async (mode, fn) => { const d = await idb(); return new Promise((res, rej) => { const t = d.transaction('c', mode); const q = fn(t.objectStore('c')); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); };
+const idbPut = (k, v) => idbOp('readwrite', (s) => s.put(v, k));
+const idbGet = (k) => idbOp('readonly', (s) => s.get(k));
+const idbDel = (k) => idbOp('readwrite', (s) => s.delete(k));
+const idbAllKeys = () => idbOp('readonly', (s) => s.getAllKeys());
+
 export function createDesktopPlatform() {
   let dataDir = '', coverDir = '';
   const watchers = new Map();
@@ -20,7 +28,8 @@ export function createDesktopPlatform() {
       dataDir = (window.NL_DATAPATH || window.NL_PATH) + '/PulseData';
       coverDir = dataDir + '/covers';
       for (const d of [dataDir, coverDir]) { try { await N().filesystem.createDirectory(d); } catch {} }
-      try { await N().server.mount('/covers', coverDir); } catch {}
+      try { await N().server.mount('/covers', coverDir); } catch (e) { console.warn('mount covers failed', e); }
+      try { for (const k of (await idbAllKeys()) || []) if (!String(k).endsWith('_s')) p.idbKeys.add(k); } catch {}
       N().events.on('windowClose', () => p.emit('close'));
       N().events.on('watchFile', debounce(() => p.emit('fschange'), 1500));
       N().events.on('trayMenuItemClicked', (e) => p.emit('tray', e.detail.id));
@@ -42,7 +51,9 @@ export function createDesktopPlatform() {
       const path = await N().os.showFolderDialog('Choose a music folder', { defaultPath: await N().os.getPath('music').catch(() => '') });
       return path ? { id: hashStr(path), path: path.replace(/\\/g, '/'), name: path.split(/[\\/]/).filter(Boolean).pop() } : null;
     },
+    roots: new Map(),
     async mountRoot(root) {
+      p.roots.set(root.id, root);
       try { await N().server.unmount('/m_' + root.id); } catch {}
       await N().server.mount('/m_' + root.id, root.path);
     },
@@ -81,15 +92,30 @@ export function createDesktopPlatform() {
     audioURL(t) { return Promise.resolve(p.trackURL(t)); },
     releaseAudio() {},
     async reader(t) {
+      try { return await p.httpReader(t); }
+      catch (e) {
+        console.warn('http reader failed, using native read', e);
+        const root = p.roots?.get(t.root); if (!root) throw e;
+        const path = root.path + '/' + t.rel; const st = await N().filesystem.getStats(path);
+        return cachedReader(st.size, (pos, len) => N().filesystem.readBinaryFile(path, { pos, size: len }));
+      }
+    },
+    async httpReader(t) {
       const url = p.trackURL(t);
       const first = await fetch(url, { headers: { Range: 'bytes=0-65535' } });
       const cr = first.headers.get('Content-Range');
       const size = cr ? +cr.split('/')[1] : +(first.headers.get('Content-Length') || 0);
+      if (!first.ok) throw new Error('HTTP ' + first.status);
       const firstBuf = await first.arrayBuffer();
+      if (first.status === 200 && firstBuf.byteLength > 65536 && size === firstBuf.byteLength) { // server ignored Range: use the whole file
+        return cachedReader(size, async (pos, len) => firstBuf.slice(pos, pos + len));
+      }
       const raw = async (pos, len) => {
         if (pos === 0 && len <= firstBuf.byteLength) return firstBuf.slice(0, len);
         const r = await fetch(url, { headers: { Range: `bytes=${pos}-${pos + len - 1}` } });
-        return r.arrayBuffer();
+        const buf = await r.arrayBuffer();
+        if (r.status === 200 && buf.byteLength !== len) return buf.slice(pos, pos + len); // Range ignored
+        return buf;
       };
       return cachedReader(size, raw);
     },
@@ -109,19 +135,53 @@ export function createDesktopPlatform() {
     revealTrack(t, root) { N().os.execCommand(`explorer.exe /select,"${(root.path + '/' + t.rel).replace(/\//g, '\\')}"`, { background: true }); },
 
     // ---- covers ----
-    async hasCover(key) { try { await N().filesystem.getStats(coverDir + '/' + key + '.jpg'); return true; } catch { return false; } },
+    // Covers are cached as files (served by the local server). If that ever fails,
+    // they go into the app's IndexedDB instead, so art always shows.
+    idbKeys: new Set(),
+    async hasCover(key) { try { await N().filesystem.getStats(coverDir + '/' + key + '.jpg'); return true; } catch { return p.idbKeys.has(key); } },
     async saveCover(key, big, small) {
-      await N().filesystem.writeBinaryFile(coverDir + '/' + key + '.jpg', await big.arrayBuffer());
-      await N().filesystem.writeBinaryFile(coverDir + '/' + key + '_s.jpg', await small.arrayBuffer());
+      try {
+        await N().filesystem.writeBinaryFile(coverDir + '/' + key + '.jpg', await big.arrayBuffer());
+        await N().filesystem.writeBinaryFile(coverDir + '/' + key + '_s.jpg', await small.arrayBuffer());
+        const chk = await fetch(location.origin + '/covers/' + key + '_s.jpg', { method: 'GET' }); if (!chk.ok) throw new Error('cover not served (' + chk.status + ')');
+        return 'file';
+      } catch (e) {
+        console.warn('cover file write failed, using IndexedDB', e);
+        await idbPut(key, big); await idbPut(key + '_s', small); p.idbKeys.add(key);
+        return 'idb';
+      }
     },
-    async deleteCover(key) { for (const s of ['.jpg', '_s.jpg']) { try { await N().filesystem.remove(coverDir + '/' + key + s); } catch {} } },
-    coverURL(key, small) { return key ? Promise.resolve(location.origin + '/covers/' + key + (small ? '_s' : '') + '.jpg') : Promise.resolve(null); },
-    coverURLSync(key, small) { return key ? location.origin + '/covers/' + key + (small ? '_s' : '') + '.jpg' : null; },
+    async deleteCover(key) { for (const s of ['.jpg', '_s.jpg']) { try { await N().filesystem.remove(coverDir + '/' + key + s); } catch {} } try { await idbDel(key); await idbDel(key + '_s'); } catch {} p.idbKeys.delete(key); },
+    blobURLs: new Map(),
+    coverURL(key, small) {
+      if (!key) return Promise.resolve(null);
+      if (p.idbKeys.has(key)) { const k = key + (small ? '_s' : ''); if (!p.blobURLs.has(k)) p.blobURLs.set(k, idbGet(k).then((b) => (b ? URL.createObjectURL(b) : null))); return p.blobURLs.get(k); }
+      return Promise.resolve(location.origin + '/covers/' + key + (small ? '_s' : '') + '.jpg');
+    },
+    coverURLSync(key, small) { return key && !p.idbKeys.has(key) ? location.origin + '/covers/' + key + (small ? '_s' : '') + '.jpg' : null; },
 
     // ---- window ----
     win: {
       minimize: () => N().window.minimize(),
-      async toggleMax() { (await N().window.isMaximized()) ? N().window.unmaximize() : N().window.maximize(); },
+      // Manual maximize: native SW_MAXIMIZE on a borderless transparent window misroutes clicks
+      _max: null,
+      async toggleMax() { return p.win._max ? p.win.restore() : p.win.maximize(); },
+      async maximize() {
+        if (p.win._max) return;
+        const pos = await N().window.getPosition(), size = await N().window.getSize();
+        p.win._max = { pos, size };
+        const dpr = window.devicePixelRatio || 1, sc = window.screen;
+        await N().window.setSize({ width: sc.availWidth, height: sc.availHeight, resizable: true, minWidth: 200, minHeight: 60 });
+        await N().window.move(Math.round((sc.availLeft || 0) * dpr), Math.round((sc.availTop || 0) * dpr));
+        p.emit('maxchange', true);
+      },
+      async restore(atCursor) {
+        const m = p.win._max; if (!m) return; p.win._max = null;
+        await N().window.setSize({ width: m.size.width, height: m.size.height, resizable: true, minWidth: 200, minHeight: 60 });
+        if (atCursor) { const dpr = window.devicePixelRatio || 1; await N().window.move(Math.round(atCursor.x * dpr - m.size.width * dpr * atCursor.fx), Math.round(atCursor.y * dpr - 20 * dpr)); }
+        else await N().window.move(m.pos.x, m.pos.y);
+        p.emit('maxchange', false);
+      },
       close: () => p.emit('close'),
       exit: () => N().app.exit(),
       drag: () => N().window.beginDrag().catch(() => {}),
@@ -130,8 +190,8 @@ export function createDesktopPlatform() {
       getPos: () => N().window.getPosition(),
       move: (x, y) => N().window.move(Math.round(x), Math.round(y)),
       onTop: (v) => N().window.setAlwaysOnTop(!!v),
-      isMax: () => N().window.isMaximized(),
-      unmax: () => N().window.unmaximize(),
+      isMax: async () => !!p.win._max || (await N().window.isMaximized().catch(() => false)),
+      unmax: () => (p.win._max ? p.win.restore() : N().window.unmaximize()),
       hide: () => N().window.hide(),
       show: async () => { await N().window.show(); await N().window.focus(); },
       setTray(items) { return N().os.setTray({ icon: '/resources/icons/tray.png', menuItems: items }).catch(() => {}); },

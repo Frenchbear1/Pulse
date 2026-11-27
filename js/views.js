@@ -672,6 +672,8 @@ R.settings = () => {
   } else {
     libHTML += `<div class="root-row"><div class="p"><b>${plural(total, 'song')} on this device</b><small id="storageInfo">Checking storage…</small></div></div><div class="root-row"><button class="pill solid" data-imp="1">${ico('folder')}Import a folder</button><button class="pill" data-imp="0">${ico('note')}Import songs</button></div>`;
   }
+  const noArt = Object.values(lib.db.tracks).filter((t) => !t.cover).length;
+  if (total) libHTML += opt('Album covers', `${(total - noArt).toLocaleString()} of ${total.toLocaleString()} songs have art${lib.coverErrors.length ? ` • last problem: ${esc(lib.coverErrors[0])}` : ''}`, noArt ? `<button class="pill" data-repaircovers>${ico('refresh')}Find missing covers</button>` : `<span style="color:var(--tx3);font-size:13px">All set</span>`);
   libHTML += `</div>`;
   el.appendChild(h(`<div>${libHTML}</div>`));
   // Theme studio
@@ -726,6 +728,7 @@ R.settings = () => {
     const sg = t.closest('.seg[data-seg] button'); if (sg) { const k = sg.parentElement.dataset.seg; S[k] = sg.dataset.v; if (THEME_KEYS.includes(k)) S.preset = 'custom'; if (k === 'bgMode') { app.saveS(); applyTheme(); refresh(); return; } $$('button', sg.parentElement).forEach((b) => b.classList.toggle('on', b === sg)); app.saveS(); applyTheme(); if (k === 'engine' && S.engine === 'on') player.enableEngine(); if (k === 'engine' && S.engine === 'off' && player.engineOn) toast('Restart Pulse to fully turn the engine off'); return; }
     const ac = t.closest('[data-acc]'); if (ac) { S.accent = ac.dataset.acc; S.accentMode = 'fixed'; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }
     if (t.closest('[data-addroot]')) { addFolder(); return; }
+    if (t.closest('[data-repaircovers]')) { toast('Looking for covers…'); const r = await window.__pulseRepair?.(true); if (r) toast(r.fixed ? `Found ${r.fixed} covers` : `No embedded art found in ${r.total} song${r.total === 1 ? '' : 's'}${lib.coverErrors[0] ? ' — ' + lib.coverErrors[0] : ''}`, 5000); refresh(); return; }
     if (t.closest('[data-spimp]')) { import('./spotify.js').then((m) => m.openSpotifyImport()); return; }
     if (t.closest('[data-rescanall]')) { toast('Rescanning…'); await lib.rescanAll(); toast('Library up to date'); refresh(); return; }
     const rs = t.closest('[data-rescan]'); if (rs) { const r = roots.find((x) => x.id === rs.dataset.rescan); toast('Rescanning ' + r.name); await lib.rescan(r); refresh(); return; }

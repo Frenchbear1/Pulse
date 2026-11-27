@@ -74,6 +74,27 @@ export const lib = {
 
   // ----- scanning (desktop) / importing (web) -----
   coverJobs: new Map(),
+  coverErrors: [],
+  // Retry art for songs that ended up without a cover (e.g. a failed first scan)
+  async repairCovers(onProgress) {
+    const todo = Object.values(this.db.tracks).filter((t) => !t.cover);
+    let fixed = 0, done = 0;
+    if (!todo.length) return { fixed, total: 0 };
+    this.coverJobs = new Map([...this.coverJobs].filter(([k]) => this.db.covers[k]));
+    await pool(todo, this.P.kind === 'web' ? 2 : 4, async (t) => {
+      try {
+        const r = await this.P.reader(t); const tags = await readTags(r, t.name);
+        if (tags.picture) t.cover = await this.ensureCover(hashBytes(tags.picture.data), async () => tags.picture);
+        if (!t.cover && t.folderArt) t.cover = await this.ensureCover(hashStr((t.root || '') + '|' + (t.dirs || []).join('/') + '|' + t.folderArt), () => this.P.readFolderArt(t));
+        if (!t.lyrics && tags.lyrics && !this.db.lyrics[t.id]) { this.db.lyrics[t.id] = tags.lyrics; t.hasLyrics = true; }
+        if (tags.isrc && !t.isrc) t.isrc = tags.isrc;
+        if (t.cover) fixed++;
+      } catch (e) { this.coverErrors.unshift(String(e?.message || e)); this.coverErrors.length = Math.min(this.coverErrors.length, 5); }
+      done++; onProgress?.(done, todo.length);
+    });
+    if (fixed) { this.reindex(); await this.saveNow(); }
+    return { fixed, total: todo.length };
+  },
   async ensureCover(key, getBytes) {
     if (this.db.covers[key]) return key;
     if (this.coverJobs.has(key)) return this.coverJobs.get(key);
@@ -85,7 +106,7 @@ export const lib = {
         await this.P.saveCover(key, big, small);
         this.db.covers[key] = { color: color || '#666666' };
         return key;
-      } catch (e) { console.warn('cover', e); return null; }
+      } catch (e) { console.warn('cover', e); this.coverErrors.unshift(String(e?.message || e)); this.coverErrors.length = Math.min(this.coverErrors.length, 5); return null; }
     })();
     this.coverJobs.set(key, job);
     return job;

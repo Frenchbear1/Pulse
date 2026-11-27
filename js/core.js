@@ -131,7 +131,7 @@ export function go(view, params = {}, opts = {}) {
 export function back() { if (app.hi > 0) { app.hist[app.hi].scroll = $('#view').scrollTop; app.hi--; const e = app.hist[app.hi]; go(e.view, e.params, { back: true }); } }
 export function fwd() { if (app.hi < app.hist.length - 1) { app.hi++; const e = app.hist[app.hi]; go(e.view, e.params, { back: true }); } }
 export function render(scroll = 0, animate = true) {
-  const v = $('#view'); const fn = app.renderers[app.view] || app.renderers.home;
+  const v = $('#view'); if (animate) v.classList.remove('quiet'); const fn = app.renderers[app.view] || app.renderers.home;
   if (app.cleanup) { try { app.cleanup(); } catch {} app.cleanup = null; }
   v.innerHTML = '';
   let el; try { el = fn(app.params || {}); } catch (e) { console.error(e); el = h(`<div class="page"><div class="empty"><h3>Something went wrong</h3><p>${esc(e.message)}</p></div></div>`); }

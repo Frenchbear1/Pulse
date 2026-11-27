@@ -1,5 +1,5 @@
 // Now Playing overlay, side panel (queue / lyrics / info), visualizer, sound panel, sleep timer, mini player.
-import { app, lib, player, toast, go, menu, modal, closeLayer, coverImg, hydrate, ico, setImg, setLikeBtn, burst, marquee, slider, applyAccent } from './core.js';
+import { app, lib, player, toast, go, menu, modal, closeLayer, coverImg, hydrate, ico, setImg, setLikeBtn, burst, marquee, slider, applyAccent, hexToRgb } from './core.js';
 import { $, $$, esc, h, fmtTime, clamp, debounce } from './util.js';
 import { EQ_FREQS, EQ_PRESETS } from './player.js';
 import { trackMenu, albumKey, longPress } from './views.js';
@@ -141,9 +141,10 @@ export async function updateNP() {
     setImg($('#npArt img'), t.cover, false);
     const u = t.cover ? await app.P.coverURL(t.cover, true) : null;
     for (const b of $$('.np-bg img')) { if (u) b.src = u; b.style.opacity = u ? '' : '0'; }
-    const col = lib.db.covers[t.cover]?.color || '#222';
-    const rgb = col.match(/[\da-f]{2}/gi).map((x) => Math.round(parseInt(x, 16) * 0.35));
-    np.style.setProperty('--np-bg', rgb.join(','));
+    const col = lib.db.covers[t.cover]?.color;
+    const base = col ? hexToRgb(col) : getComputedStyle(document.documentElement).getPropertyValue('--acc-rgb').split(',').map((v) => +v || 60);
+    np.style.setProperty('--np-bg', base.map((v) => Math.round(v * 0.22 + 6)).join(','));
+    np.style.setProperty('--np-bg2', base.map((v) => Math.round(v * 0.5 + 10)).join(','));
     if (npTab === 'lyrics') { npTab = null; npRight('lyrics'); } else if (npTab === 'queue') { npTab = null; npRight('queue'); }
   }
 }
@@ -253,7 +254,7 @@ export function sleepMenu(at) {
 }
 
 // ---------------- Mini player (desktop) ----------------
-const MINI_SIZES = { bar: [400, 96], card: [300, 430], square: [270, 270], strip: [430, 46], art: [200, 200] };
+const MINI_SIZES = { bar: [420, 104], card: [300, 440], square: [270, 270], strip: [440, 46], art: [220, 220] };
 let saved = null;
 export async function enterMini() {
   if (!app.isDesktop || document.body.classList.contains('mini')) return;
@@ -274,10 +275,20 @@ export async function exitMini() {
 }
 export function applyMini() {
   const M = app.S.mini, mini = $('#mini');
-  mini.className = 'l-' + M.layout + (player.playing ? '' : ' paused');
+  mini.className = 'miniplayer l-' + M.layout + (player.playing ? '' : ' paused');
   const st = mini.style; st.setProperty('--mini-a', M.opacity); st.setProperty('--mini-blur', M.blur + 'px'); st.setProperty('--mini-r', M.radius + 'px'); st.setProperty('--mini-art', M.art ? 0.9 : 0);
   document.body.classList.toggle('mini-noart', !M.art); document.body.classList.toggle('mini-noprog', !M.progress); document.body.classList.toggle('mini-notimes', !M.times);
   $('#mini [data-m=pin]').classList.toggle('on', M.onTop);
+  miniModes();
+}
+export function miniModes() {
+  const m = $('#mini'); if (!m) return;
+  m.querySelector('[data-m=shuffle]').classList.toggle('on', player.shuffle);
+  m.querySelector('[data-m=repeat]').classList.toggle('on', player.repeat !== 'off');
+  m.querySelector('[data-m=repeat] use').setAttribute('href', player.repeat === 'one' ? '#i-repeat1' : '#i-repeat');
+  const v = app.S.muted ? 0 : app.S.volume;
+  m.querySelector('[data-m=mute] use').setAttribute('href', v === 0 ? '#i-vol-x' : v < 0.5 ? '#i-vol-low' : '#i-vol');
+  miniVol?.update(v); m.querySelector('#miniVol').style.setProperty('--v', v);
 }
 let lastMini = null;
 export async function updateMini(force) {
@@ -299,12 +310,16 @@ export function miniTime() {
   miniSeek?.update(d ? c / d : 0);
   $('#miniCur').textContent = fmtTime(c); $('#miniDur').textContent = fmtTime(d);
 }
-let miniSeek;
+let miniSeek, miniVol;
 function wireMini() {
   const mini = $('#mini');
   mini.addEventListener('click', async (e) => {
+    if (e.target.closest('.mini-hover .trig')) { e.target.closest('.mini-hover').classList.toggle('open'); return; }
     const b = e.target.closest('[data-m]'); if (!b) return; const k = b.dataset.m; const M = app.S.mini;
     if (k === 'play') player.toggle(); else if (k === 'next') player.next(); else if (k === 'prev') player.prev();
+    else if (k === 'shuffle') { player.toggleShuffle(); miniModes(); }
+    else if (k === 'repeat') { player.cycleRepeat(); miniModes(); }
+    else if (k === 'mute') { player.toggleMute(); miniModes(); }
     else if (k === 'like') { const t = player.track; if (t) { lib.like(t.id); updateMini(); } }
     else if (k === 'exit') exitMini();
     else if (k === 'pin') { M.onTop = !M.onTop; app.P.win.onTop(M.onTop); applyMini(); app.saveS(); toast(M.onTop ? 'Always on top' : 'Not on top'); }
@@ -321,6 +336,8 @@ function wireMini() {
   mini.addEventListener('wheel', (e) => { player.setVolume(app.S.volume - Math.sign(e.deltaY) * 0.05); toast(`Volume ${Math.round(app.S.volume * 100)}%`, 700); }, { passive: true });
   mini.addEventListener('contextmenu', (e) => { e.preventDefault(); miniMenu({ x: e.clientX, y: e.clientY }); });
   miniSeek = slider($('#miniSeek'), { get: () => player.duration ? player.time / player.duration : 0, set: (v) => player.seek(v * player.duration) });
+  miniVol = slider($('#miniVol'), { get: () => app.S.volume, set: (v) => { player.setVolume(v); miniModes(); }, preview: (v, hover) => { if (!hover) player.setVolume(v); } });
+  player.on((e) => { if (e === 'mode' || e === 'volume') miniModes(); });
 }
 function miniMenu(at) {
   const M = app.S.mini;
@@ -332,6 +349,7 @@ export function miniCustomize() {
   const seg = (k, opts) => `<div class="seg" data-mseg="${k}">${opts.map(([v, l]) => `<button data-v="${v}" class="${M[k] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const tg = (k) => `<div class="tog ${M[k] ? 'on' : ''}" data-mtog="${k}"></div>`;
   const m = modal(`<h2>Mini player <button class="ib sm" data-close>${ico('x')}</button></h2>
+    <div class="mini-stage" id="miniStage"><small></small></div>
     <div class="opt"><div class="l"><b>Layout</b></div><div class="r">${seg('layout', [['bar', 'Bar'], ['card', 'Card'], ['square', 'Square'], ['strip', 'Strip'], ['art', 'Cover']])}</div></div>
     <div class="opt"><div class="l"><b>Background opacity</b><small>Lower = see-through to your desktop</small></div><div class="r"><input type="range" min="0" max="1" step="0.01" value="${M.opacity}" data-mr="opacity"><span class="val">${Math.round(M.opacity * 100)}%</span></div></div>
     <div class="opt"><div class="l"><b>Album-art glow</b><small>Blurred cover behind the controls</small></div><div class="r">${tg('art')}</div></div>
@@ -342,12 +360,29 @@ export function miniCustomize() {
     <div class="opt"><div class="l"><b>Always on top</b></div><div class="r">${tg('onTop')}</div></div>
     <p style="opacity:.6;font-size:12.5px;margin:12px 0 0">Tips: drag anywhere to move it, resize from the edges, scroll to change volume, right-click for layouts, double-click to go back.</p>
     <div class="row"><button class="pill" data-close>Done</button><button class="pill solid" data-open>${ico('mini')}Open mini player</button></div>`);
+  m.classList.add('wide'); m.style.width = 'min(640px, calc(100vw - 28px))';
+  const stage = m.querySelector('#miniStage');
+  const drawPreview = async () => {
+    applyMini(); await updateMini(true);
+    stage.querySelector('.miniplayer')?.remove();
+    const [dw, dh] = MINI_SIZES[M.layout] || MINI_SIZES.bar; const w = M.w?.[M.layout] || dw, hh = M.h?.[M.layout] || dh;
+    const c = $('#mini').cloneNode(true); c.id = 'miniPreview'; c.classList.add('preview');
+    c.querySelectorAll('[id]').forEach((x) => x.removeAttribute('id'));
+    c.style.width = w + 'px'; c.style.height = hh + 'px';
+    const sc = Math.min(1, (stage.clientWidth - 30) / w, (stage.clientHeight - 30) / hh);
+    stage.style.height = Math.max(150, Math.min(340, hh * sc + 60)) + 'px';
+    const sc2 = Math.min(1, (stage.clientWidth - 30) / w, (Math.min(340, hh + 60) - 30) / hh);
+    c.style.transform = sc2 < 1 ? `scale(${sc2})` : ''; c.style.transformOrigin = 'center';
+    stage.appendChild(c);
+    stage.querySelector(':scope > small').textContent = `${w} × ${hh}${sc2 < 1 ? ` • shown at ${Math.round(sc2 * 100)}%` : ' • actual size'}`;
+  };
+  requestAnimationFrame(drawPreview);
   m.addEventListener('click', (e) => {
-    const s = e.target.closest('[data-mseg] button'); if (s) { M[s.parentElement.dataset.mseg] = s.dataset.v; $$('button', s.parentElement).forEach((b) => b.classList.toggle('on', b === s)); app.saveS(); }
-    const t = e.target.closest('[data-mtog]'); if (t) { const k = t.dataset.mtog; M[k] = !M[k]; t.classList.toggle('on', M[k]); app.saveS(); }
+    const s = e.target.closest('[data-mseg] button'); if (s) { M[s.parentElement.dataset.mseg] = s.dataset.v; $$('button', s.parentElement).forEach((b) => b.classList.toggle('on', b === s)); app.saveS(); drawPreview(); }
+    const t = e.target.closest('[data-mtog]'); if (t) { const k = t.dataset.mtog; M[k] = !M[k]; t.classList.toggle('on', M[k]); app.saveS(); drawPreview(); }
     if (e.target.closest('[data-open]')) { closeLayer(); enterMini(); }
   });
-  m.addEventListener('input', (e) => { const r = e.target.closest('[data-mr]'); if (!r) return; const k = r.dataset.mr; M[k] = +r.value; r.nextElementSibling.textContent = k === 'opacity' ? Math.round(M[k] * 100) + '%' : M[k] + 'px'; app.saveS(); });
+  m.addEventListener('input', (e) => { const r = e.target.closest('[data-mr]'); if (!r) return; const k = r.dataset.mr; M[k] = +r.value; r.nextElementSibling.textContent = k === 'opacity' ? Math.round(M[k] * 100) + '%' : M[k] + 'px'; app.saveS(); applyMini(); const pv = stage.querySelector('.miniplayer'); if (pv) { for (const v of ['--mini-a', '--mini-blur', '--mini-r', '--mini-art']) pv.style.setProperty(v, $('#mini').style.getPropertyValue(v)); } });
 }
 
 export function initNP() { wireNP(); if (app.isDesktop) wireMini(); }

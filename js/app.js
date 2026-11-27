@@ -31,10 +31,11 @@ async function boot() {
 
   // desktop: background rescan + folder watching
   if (isDesktop) {
-    setTimeout(async () => { if (app.S.rescanOnStart) await lib.rescanAll().catch((e) => console.warn(e)); if (app.S.watch) lib.db.roots.forEach((r) => P.watchRoot(r)); }, 900);
+    setTimeout(async () => { if (app.S.rescanOnStart) await lib.rescanAll().catch((e) => console.warn(e)); if (app.S.watch) lib.db.roots.forEach((r) => P.watchRoot(r)); autoRepairCovers(); }, 900);
     P.on((type, d) => {
       if (type === 'fschange' && app.S.watch) lib.rescanAll();
       if (type === 'close') { if (app.S.closeToTray) P.win.hide(); else quit(); }
+      if (type === 'maxchange') { document.body.classList.toggle('maxed', d); $('#wMax use').setAttribute('href', d ? '#i-collapse' : '#i-wmax'); }
       if (type === 'tray') ({ play: () => player.toggle(), next: () => player.next(), prev: () => player.prev(), show: () => P.win.show(), mini: () => { P.win.show(); NP.enterMini(); }, quit })[d]?.();
     });
     setTray();
@@ -158,16 +159,26 @@ function wireShell() {
   lib.on((e, d) => {
     if (e === 'liked') { const t = player.track; if (t && t.id === d) { setLikeBtn($('#barLike'), lib.isLiked(d)); setLikeBtn($('#mbLike'), lib.isLiked(d)); NP.updateNP(); NP.updateMini(); } rerenderTreesSoon(); }
     if (e === 'nodes') rerenderTreesSoon();
-    if (e === 'scan') { const pill = $('#scanPill'); if (d) { pill.classList.remove('hidden'); pill.querySelector('.txt').textContent = `${d.label} • ${d.done.toLocaleString()} / ${d.total.toLocaleString()}`; } else { pill.classList.add('hidden'); } }
-    if (e === 'index') { autoFill(); if (['home', 'songs', 'albums', 'artists', 'folders', 'library'].includes(app.view) && !$('.trow.sel')) refreshSoon(); }
+    if (e === 'scan') { const pill = $('#scanPill'); if (d) { pill.classList.remove('hidden'); pill.querySelector('.txt').textContent = `${d.label} • ${d.done.toLocaleString()} / ${d.total.toLocaleString()}`; } else { pill.classList.add('hidden'); if (pendingRefresh) { pendingRefresh = false; quietRefresh(); } } }
+    // Library changes land in the background: never re-render mid-scan, refresh once quietly at the end
+    if (e === 'index') { autoFill(); if (['home', 'songs', 'albums', 'artists', 'folders', 'library', 'search'].includes(app.view)) { if (lib.scanning || repairing) pendingRefresh = true; else quietRefresh(); } }
   });
 
   // window controls (desktop)
   if (isDesktop) {
     const W = app.P.win;
-    $('#wMin').onclick = W.minimize; $('#wMax').onclick = async () => { await W.toggleMax(); setTimeout(async () => document.body.classList.toggle('maxed', await W.isMax()), 120); }; $('#wClose').onclick = W.close;
+    $('#wMin').onclick = W.minimize; $('#wMax').onclick = () => W.toggleMax(); $('#wClose').onclick = W.close;
     const dragAreas = ['#dragZone', '.tb-drag', '#titlebar', '.np-top'];
-    document.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; const z = e.target.closest(dragAreas.join(',')); if (!z || e.target.closest('button, input, a, label, .np-src')) return; W.drag(); });
+    document.addEventListener('pointerdown', async (e) => {
+      if (e.button !== 0) return; const z = e.target.closest(dragAreas.join(',')); if (!z || e.target.closest('button, input, a, label, .np-src')) return;
+      if (W._max && e.detail < 2) { // drag down from maximized: restore under the cursor, then keep dragging
+        const fx = e.clientX / innerWidth; const sx = e.screenX, sy = e.screenY;
+        const onMove = async (ev) => { if (Math.hypot(ev.screenX - sx, ev.screenY - sy) < 6) return; document.removeEventListener('pointermove', onMove); await W.restore({ x: ev.screenX, y: ev.screenY, fx }); W.drag(); };
+        document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', () => document.removeEventListener('pointermove', onMove), { once: true });
+        return;
+      }
+      W.drag();
+    });
     $('#titlebar').addEventListener('dblclick', (e) => { if (!e.target.closest('button, input, a, label')) $('#wMax').click(); });
     // resize grips (borderless window)
     $$('#grips .g').forEach((g) => g.addEventListener('pointerdown', async (e) => {
@@ -225,5 +236,20 @@ function wireShell() {
   // drop on main area root nodes (move to top level)
   $('#tree').addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('application/x-pulse-node') && e.target === $('#tree')) e.preventDefault(); });
 }
+
+// ---------- background helpers ----------
+let pendingRefresh = false, repairing = false;
+const quietRefresh = debounce(() => { if ($('#layer').children.length || $('.trow.sel')) { pendingRefresh = true; return; } const v = $('#view'); v.classList.add('quiet'); refresh(); setTimeout(() => v.classList.remove('quiet'), 600); }, 400);
+export async function autoRepairCovers(force) {
+  const missing = Object.values(lib.db.tracks).filter((t) => !t.cover).length;
+  if (!missing || repairing || (!force && app.S.coverRepairV === 2)) return null;
+  repairing = true; const pill = $('#scanPill');
+  pill.classList.remove('hidden');
+  const res = await lib.repairCovers((d, t) => { pill.querySelector('.txt').textContent = `Finding covers • ${d.toLocaleString()} / ${t.toLocaleString()}`; }).catch((e) => { console.warn(e); return null; });
+  repairing = false; pill.classList.add('hidden'); app.S.coverRepairV = 2; app.saveS();
+  if (res?.fixed) { toast(`Found covers for ${res.fixed.toLocaleString()} song${res.fixed === 1 ? '' : 's'}`); quietRefresh(); updateBar(); }
+  return res;
+}
+window.__pulseRepair = autoRepairCovers;
 
 boot().catch((e) => { console.error(e); document.body.classList.remove('booting'); document.getElementById('view').innerHTML = `<div class="page"><div class="empty"><h3>Pulse failed to start</h3><p>${String(e.message || e)}</p></div></div>`; });

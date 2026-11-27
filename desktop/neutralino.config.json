@@ -3,7 +3,7 @@
   "applicationId": "app.pulse.player",
   "applicationName": "Pulse",
   "author": "David LaBarre",
-  "description": "Lightning-fast music player",
+  "description": "Pulse",
   "version": "1.0.0",
   "defaultMode": "window",
   "port": 41730,

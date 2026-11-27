@@ -76,16 +76,26 @@ export function dominantColor(img) {
   } catch { return null; }
 }
 
-// Resize image bytes to jpeg blobs (big + small) and get a color
+// Resize image bytes to jpeg blobs (big + small) and get a color.
+// Tries <img>, then createImageBitmap, then falls back to the original bytes.
 export async function processCover(bytes, mime) {
-  const blob = new Blob([bytes], { type: mime || 'image/jpeg' });
-  const url = URL.createObjectURL(blob);
+  const type = mime && mime.startsWith('image/') ? mime : (bytes[0] === 0x89 ? 'image/png' : 'image/jpeg');
+  const blob = new Blob([bytes], { type });
+  let src = null, w = 0, hgt = 0, url = null;
   try {
-    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-    const mk = (sz, q) => { const c = document.createElement('canvas'); const s = Math.min(sz, Math.max(img.naturalWidth, img.naturalHeight)); const r = Math.min(s / img.naturalWidth, s / img.naturalHeight); c.width = Math.max(1, Math.round(img.naturalWidth * r)); c.height = Math.max(1, Math.round(img.naturalHeight * r)); const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(img, 0, 0, c.width, c.height); return new Promise((res) => c.toBlob(res, 'image/jpeg', q)); };
+    url = URL.createObjectURL(blob);
+    src = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('image decode failed')); i.src = url; });
+    w = src.naturalWidth; hgt = src.naturalHeight;
+  } catch (e1) {
+    try { src = await createImageBitmap(blob); w = src.width; hgt = src.height; }
+    catch (e2) { if (url) URL.revokeObjectURL(url); if (bytes.length > 200) return { big: blob, small: blob, color: null, raw: true }; throw e2; }
+  }
+  try {
+    if (!w || !hgt) throw new Error('empty image');
+    const mk = (sz, q) => { const c = document.createElement('canvas'); const s = Math.min(sz, Math.max(w, hgt)); const r = Math.min(s / w, s / hgt); c.width = Math.max(1, Math.round(w * r)); c.height = Math.max(1, Math.round(hgt * r)); const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, c.width, c.height); return new Promise((res) => c.toBlob((bl) => res(bl || blob), 'image/jpeg', q)); };
     const [big, small] = await Promise.all([mk(640, 0.86), mk(176, 0.8)]);
-    return { big, small, color: dominantColor(img) };
-  } finally { URL.revokeObjectURL(url); }
+    return { big, small, color: dominantColor(src) };
+  } finally { if (url) URL.revokeObjectURL(url); src?.close?.(); }
 }
 
 export function toast(msg, ms = 2400) {
