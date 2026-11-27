@@ -1,0 +1,44 @@
+# Builds Pulse.exe + Pulse-Setup.exe and publishes them as a GitHub Release
+# whenever a version tag (v1.2.0, ...) is pushed. Can also be run by hand from the Actions tab.
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install build tools
+        run: |
+          npm i -g @neutralinojs/neu@11
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis
+      - name: Get Neutralino binaries
+        working-directory: desktop
+        run: |
+          VER=$(node -p "require('./neutralino.config.json').cli.binaryVersion")
+          curl -sSL -o n.zip "https://github.com/neutralinojs/neutralinojs/releases/download/v$VER/neutralinojs-v$VER.zip"
+          mkdir -p bin && unzip -oq n.zip -d bin && rm n.zip
+      - name: Build
+        run: |
+          chmod +x build.sh && ./build.sh
+          ls -la desktop/dist
+      - name: Read version
+        id: v
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}
+          name: Pulse ${{ steps.v.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          make_latest: true
+          files: |
+            desktop/dist/Pulse-Setup.exe
+            desktop/dist/Pulse.exe

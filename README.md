@@ -32,7 +32,8 @@ npm i -g @neutralinojs/neu
 cd desktop && neu update && cd ..
 ./build.sh        # -> desktop/dist/Pulse.exe and Pulse-Setup.exe (installer needs NSIS)
 ```
-The version number lives in `VERSION`; bump it before building a release.
+### Publishing a release
+Bump `VERSION`, update `RELEASE_NOTES.md`, commit, then push a matching tag (`git tag v1.2.0 && git push origin v1.2.0`). GitHub Actions builds `Pulse.exe` + `Pulse-Setup.exe` and publishes the Release automatically.
 
 ## Web app hosting
 GitHub Pages serves the repo root (Settings → Pages → Deploy from a branch → `main` / `(root)`).
