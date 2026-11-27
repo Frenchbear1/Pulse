@@ -1,0 +1,5 @@
+desktop/bin/
+desktop/resources/
+desktop/dist/
+desktop/.tmp/
+node_modules/

@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Pulse</title>
+<meta name="theme-color" content="#0b0b0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pulse">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+<!--DESKTOP-->
+</head>
+<body class="booting">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8 5.6v12.8c0 .8.9 1.3 1.6.9l10-6.4c.6-.4.6-1.4 0-1.8l-10-6.4C8.9 4.3 8 4.8 8 5.6z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect fill="currentColor" stroke="none" x="6" y="5" width="4.2" height="14" rx="1.3"/><rect fill="currentColor" stroke="none" x="13.8" y="5" width="4.2" height="14" rx="1.3"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M5 6.3v11.4c0 .8.9 1.3 1.5.8l8.3-5.7c.6-.4.6-1.2 0-1.6L6.5 5.5C5.9 5 5 5.5 5 6.3z"/><rect fill="currentColor" stroke="none" x="16.5" y="5" width="2.6" height="14" rx="1.2"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M19 6.3v11.4c0 .8-.9 1.3-1.5.8l-8.3-5.7c-.6-.4-.6-1.2 0-1.6l8.3-5.7c.6-.5 1.5 0 1.5.8z"/><rect fill="currentColor" stroke="none" x="4.9" y="5" width="2.6" height="14" rx="1.2"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 7h3.5c2 0 3.3 1 4.4 2.6l2.2 4.8c1.1 1.6 2.4 2.6 4.4 2.6H21M3 17h3.5c1.6 0 2.7-.6 3.6-1.6M14 8.6c.9-1 2-1.6 3.5-1.6H21M18 4l3 3-3 3M18 14l3 3-3 3"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20M7 21l-3-3 3-3M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></symbol>
+    <symbol id="i-repeat1" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20M7 21l-3-3 3-3M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/><path d="M11.3 10.4l1.4-.9v5" stroke-width="1.6"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.3s-7.8-4.6-7.8-10.4A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 7.8 2.9c0 5.8-7.8 10.4-7.8 10.4z"/></symbol>
+    <symbol id="i-heart-f" viewBox="0 0 24 24"><path fill="currentColor" d="M12 20.3s-7.8-4.6-7.8-10.4A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 7.8 2.9c0 5.8-7.8 10.4-7.8 10.4z"/></symbol>
+    <symbol id="i-queue" viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h7"/><path fill="currentColor" stroke="none" d="M15 14.2v5.6c0 .5.5.8.9.5l4.4-2.8c.4-.3.4-.8 0-1l-4.4-2.8c-.4-.3-.9 0-.9.5z"/></symbol>
+    <symbol id="i-lyrics" viewBox="0 0 24 24"><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-7l-4 3.5V16H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM8 9h8M8 12h5"/></symbol>
+    <symbol id="i-mini" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.2"/><rect x="11.5" y="11.5" width="7" height="5" rx="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+    <symbol id="i-vol-low" viewBox="0 0 24 24"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5zM15.5 9a4 4 0 0 1 0 6"/></symbol>
+    <symbol id="i-vol-x" viewBox="0 0 24 24"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5zM16 9.5l5 5M21 9.5l-5 5"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5L12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M5 4v16M9.5 4v16M14 4.5l5.5 15"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h3.6l2 2.2h7.4a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-playlist" viewBox="0 0 24 24"><path d="M4 6h11M4 10.5h11M4 15h6"/><circle cx="16.5" cy="17" r="2.5"/><path d="M19 17V8.5l2-.8"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><circle cx="7.5" cy="17.5" r="2.8"/><circle cx="17" cy="15.5" r="2.8"/><path d="M10.3 17.5V6.2L19.8 4v11.5"/></symbol>
+    <symbol id="i-album" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.2"/></symbol>
+    <symbol id="i-artist" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.8-4 3.8-6 7.5-6s6.7 2 7.5 6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M5 9l7 7 7-7"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.3 1a7.5 7.5 0 0 0-2.6-1.5L14 2.6h-4l-.5 2.5A7.5 7.5 0 0 0 6.9 6.6l-2.3-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.3-1a7.5 7.5 0 0 0 2.6 1.5l.5 2.5h4l.5-2.5a7.5 7.5 0 0 0 2.6-1.5l2.3 1 2-3.4z"/></symbol>
+    <symbol id="i-eq" viewBox="0 0 24 24"><path d="M6 4v5M6 13v7M12 4v9M12 17v3M18 4v3M18 11v9"/><circle cx="6" cy="11" r="2"/><circle cx="12" cy="15" r="2"/><circle cx="18" cy="9" r="2"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></symbol>
+    <symbol id="i-speed" viewBox="0 0 24 24"><path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 13l4-4"/><circle cx="12" cy="13" r="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/></symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M20 10h-6V4M4 14h6v6M14 10l6.5-6.5M10 14l-6.5 6.5"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3.5 3.5h-11L10 9zM12 12.5V20"/></symbol>
+    <symbol id="i-wmin" viewBox="0 0 24 24"><path d="M6 12.5h12"/></symbol>
+    <symbol id="i-wmax" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M4 17.5l5-4.5 4 3.5 3-2.5 4.5 4"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="7" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="7" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="17" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="1.3" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M13 6h8M13 11h6M13 16h4"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8.5 6H20M8.5 12H20M8.5 18H20"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3L20 9.5M20 4.5v5h-5"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l9 4.5-9 4.5-9-4.5zM3 13l9 4.5 9-4.5M3 17.2l9 4.3 9-4.3"/></symbol>
+    <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V5.5a1.5 1.5 0 0 0-1.5-1.5H5.5A1.5 1.5 0 0 0 4 5.5V14a1.5 1.5 0 0 0 1.5 1.5h3"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.2"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4M21 12h0"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.2 0 1.8-.9 1.4-1.9-.5-1.2.3-2.3 1.6-2.3h1.7a3.8 3.8 0 0 0 3.8-3.8c0-5-3.8-9-8.5-9z"/><circle cx="7.8" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7.3" r="1.2" fill="currentColor"/><circle cx="15" cy="7.8" r="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-cast" viewBox="0 0 24 24"><path d="M4 16.5a3.5 3.5 0 0 1 3.5 3.5M4 12.5a7.5 7.5 0 0 1 7.5 7.5M4 8.5V6a1.5 1.5 0 0 1 1.5-1.5h13A1.5 1.5 0 0 1 20 6v12a1.5 1.5 0 0 1-1.5 1.5H15"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h0M9.5 10h0M13 10h0M16.5 10h0M7 14h10"/></symbol>
+  </defs>
+</svg>
+
+<div id="bg"><div class="bg-a"></div><div class="bg-b"></div></div>
+
+<div id="app">
+  <header id="titlebar">
+    <div class="tb-left">
+      <button class="ib" id="btnSide" title="Toggle sidebar (Ctrl+B)"><svg><use href="#i-sidebar"/></svg></button>
+      <button class="ib" id="navBack" title="Back"><svg><use href="#i-back"/></svg></button>
+      <button class="ib" id="navFwd" title="Forward"><svg><use href="#i-fwd"/></svg></button>
+    </div>
+    <div class="tb-drag" id="dragZone"></div>
+    <label class="tb-search" id="topSearch">
+      <svg><use href="#i-search"/></svg>
+      <input id="searchInput" placeholder="Search songs, albums, artists…" autocomplete="off" spellcheck="false">
+      <kbd>Ctrl K</kbd>
+    </label>
+    <div class="tb-drag"></div>
+    <div class="tb-right">
+      <div id="scanPill" class="scan-pill hidden"><span class="spin"></span><span class="txt"></span></div>
+      <button class="ib" id="btnSettings" title="Settings (Ctrl+,)"><svg><use href="#i-gear"/></svg></button>
+      <div class="winbtns">
+        <button class="wb" id="wMin" title="Minimize"><svg><use href="#i-wmin"/></svg></button>
+        <button class="wb" id="wMax" title="Maximize"><svg><use href="#i-wmax"/></svg></button>
+        <button class="wb close" id="wClose" title="Close"><svg><use href="#i-x"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <aside id="side">
+    <nav class="side-nav">
+      <a data-go="home"><svg><use href="#i-home"/></svg><span>Home</span></a>
+      <a data-go="search"><svg><use href="#i-search"/></svg><span>Search</span></a>
+    </nav>
+    <div class="side-lib">
+      <div class="side-head">
+        <a data-go="library" class="side-title"><svg><use href="#i-library"/></svg><span>Your Library</span></a>
+        <button class="ib sm" id="sideNew" title="Create playlist or folder"><svg><use href="#i-plus"/></svg></button>
+      </div>
+      <div class="side-chips">
+        <a data-go="songs"><svg><use href="#i-note"/></svg><span>Songs</span></a>
+        <a data-go="albums"><svg><use href="#i-album"/></svg><span>Albums</span></a>
+        <a data-go="artists"><svg><use href="#i-artist"/></svg><span>Artists</span></a>
+        <a data-go="folders"><svg><use href="#i-folder"/></svg><span>Folders</span></a>
+      </div>
+      <div class="side-scroll">
+        <a class="side-item special" data-go="liked"><span class="sw liked"><svg><use href="#i-heart-f"/></svg></span><span class="t"><b>Liked Songs</b><small id="likedCount"></small></span></a>
+        <a class="side-item special" data-go="recent"><span class="sw recent"><svg><use href="#i-clock"/></svg></span><span class="t"><b>Recently Played</b><small>Your history</small></span></a>
+        <div id="tree" class="tree"></div>
+      </div>
+    </div>
+  </aside>
+
+  <main id="main"><div id="view"></div></main>
+
+  <aside id="panel">
+    <div class="panel-tabs">
+      <button data-ptab="queue" class="on">Queue</button>
+      <button data-ptab="lyrics">Lyrics</button>
+      <button data-ptab="info">Info</button>
+      <button class="ib sm" id="panelClose"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <div id="panelBody"></div>
+  </aside>
+
+  <footer id="bar">
+    <div class="bar-left">
+      <div class="bar-art" id="barArt" title="Open Now Playing"><img alt=""><div class="art-fallback"><svg><use href="#i-note"/></svg></div><span class="art-expand"><svg><use href="#i-up"/></svg></span></div>
+      <div class="bar-meta"><div class="marq"><a class="bar-title" id="barTitle">Nothing playing</a></div><a class="bar-artist" id="barArtist">Pick a song to get started</a></div>
+      <button class="ib like" id="barLike" title="Like (L)"><svg><use href="#i-heart"/></svg></button>
+    </div>
+    <div class="bar-center">
+      <div class="controls">
+        <button class="ib mode" id="cShuffle" title="Shuffle (S)"><svg><use href="#i-shuffle"/></svg></button>
+        <button class="ib" id="cPrev" title="Previous (Shift+←)"><svg><use href="#i-prev"/></svg></button>
+        <button class="pp" id="cPlay" title="Play/Pause (Space)"><svg class="i-play"><use href="#i-play"/></svg><svg class="i-pause"><use href="#i-pause"/></svg></button>
+        <button class="ib" id="cNext" title="Next (Shift+→)"><svg><use href="#i-next"/></svg></button>
+        <button class="ib mode" id="cRepeat" title="Repeat (R)"><svg><use href="#i-repeat"/></svg></button>
+      </div>
+      <div class="seek-row"><span id="tCur">0:00</span><div class="slider seek" id="seek"><div class="buf"></div><div class="fill"></div><div class="knob"></div><div class="tip"></div></div><span id="tDur">0:00</span></div>
+    </div>
+    <div class="bar-right">
+      <button class="ib" id="bLyrics" title="Lyrics (Y)"><svg><use href="#i-lyrics"/></svg></button>
+      <button class="ib" id="bQueue" title="Queue (Q)"><svg><use href="#i-queue"/></svg></button>
+      <button class="ib" id="bMore" title="Sound & playback"><svg><use href="#i-eq"/></svg></button>
+      <div class="vol"><button class="ib" id="bMute" title="Mute (M)"><svg><use href="#i-vol"/></svg></button><div class="slider" id="volume"><div class="fill"></div><div class="knob"></div></div></div>
+      <button class="ib desk-only" id="bMini" title="Mini player (Ctrl+M)"><svg><use href="#i-mini"/></svg></button>
+      <button class="ib" id="bFull" title="Now Playing (F)"><svg><use href="#i-expand"/></svg></button>
+    </div>
+  </footer>
+
+  <!-- mobile -->
+  <div id="mbar">
+    <div class="mb-art"><img alt=""><div class="art-fallback"><svg><use href="#i-note"/></svg></div></div>
+    <div class="mb-meta"><b id="mbTitle">Nothing playing</b><small id="mbArtist">Import some music</small></div>
+    <button class="ib like" id="mbLike"><svg><use href="#i-heart"/></svg></button>
+    <button class="ib mb-pp" id="mbPlay"><svg class="i-play"><use href="#i-play"/></svg><svg class="i-pause"><use href="#i-pause"/></svg></button>
+    <div class="mb-prog"><div></div></div>
+  </div>
+  <nav id="tabs">
+    <a data-go="home"><svg><use href="#i-home"/></svg><span>Home</span></a>
+    <a data-go="search"><svg><use href="#i-search"/></svg><span>Search</span></a>
+    <a data-go="library"><svg><use href="#i-library"/></svg><span>Library</span></a>
+    <a data-go="settings"><svg><use href="#i-gear"/></svg><span>Settings</span></a>
+  </nav>
+</div>
+
+<!-- Now playing -->
+<section id="np" aria-hidden="true">
+  <div class="np-bg"><img class="b1" alt=""><img class="b2" alt=""><div class="np-shade"></div></div>
+  <canvas id="viz"></canvas>
+  <div class="np-top">
+    <button class="ib" id="npClose" title="Close (Esc)"><svg><use href="#i-down"/></svg></button>
+    <div class="np-src"><small>Playing from</small><b id="npSource">Your library</b></div>
+    <button class="ib" id="npMore"><svg><use href="#i-more"/></svg></button>
+  </div>
+  <div class="np-body">
+    <div class="np-left">
+      <div class="np-art" id="npArt"><div class="np-art-inner"><img alt=""><div class="art-fallback"><svg><use href="#i-note"/></svg></div><div class="np-shine"></div></div></div>
+      <div class="np-meta">
+        <div class="np-titles"><h1 id="npTitle">—</h1><a id="npArtist">—</a></div>
+        <button class="ib like big" id="npLike"><svg><use href="#i-heart"/></svg></button>
+      </div>
+      <div class="seek-row np-seek"><span id="npCur">0:00</span><div class="slider seek" id="npSeekBar"><div class="buf"></div><div class="fill"></div><div class="knob"></div><div class="tip"></div></div><span id="npDur">0:00</span></div>
+      <div class="controls np-controls">
+        <button class="ib mode" id="npShuffle"><svg><use href="#i-shuffle"/></svg></button>
+        <button class="ib xl" id="npPrev"><svg><use href="#i-prev"/></svg></button>
+        <button class="pp xl" id="npPlay"><svg class="i-play"><use href="#i-play"/></svg><svg class="i-pause"><use href="#i-pause"/></svg></button>
+        <button class="ib xl" id="npNext"><svg><use href="#i-next"/></svg></button>
+        <button class="ib mode" id="npRepeat"><svg><use href="#i-repeat"/></svg></button>
+      </div>
+      <div class="np-tools">
+        <button class="ib" data-np="lyrics" title="Lyrics"><svg><use href="#i-lyrics"/></svg></button>
+        <button class="ib" data-np="queue" title="Queue"><svg><use href="#i-queue"/></svg></button>
+        <button class="ib" data-np="viz" title="Visualizer style"><svg><use href="#i-wave"/></svg></button>
+        <button class="ib" data-np="sound" title="Sound"><svg><use href="#i-eq"/></svg></button>
+        <button class="ib" data-np="sleep" title="Sleep timer"><svg><use href="#i-moon"/></svg></button>
+      </div>
+    </div>
+    <div class="np-right" id="npRight"></div>
+  </div>
+</section>
+
+<!-- Mini player (desktop) -->
+<section id="mini">
+  <div class="mini-bg"><img alt=""></div>
+  <div class="mini-glass"></div>
+  <div class="mini-content">
+    <div class="mini-art"><img alt=""><div class="art-fallback"><svg><use href="#i-note"/></svg></div></div>
+    <div class="mini-meta"><div class="marq"><b id="miniTitle">—</b></div><small id="miniArtist">—</small></div>
+    <div class="mini-ctl">
+      <button class="ib" data-m="like"><svg><use href="#i-heart"/></svg></button>
+      <button class="ib" data-m="prev"><svg><use href="#i-prev"/></svg></button>
+      <button class="pp" data-m="play"><svg class="i-play"><use href="#i-play"/></svg><svg class="i-pause"><use href="#i-pause"/></svg></button>
+      <button class="ib" data-m="next"><svg><use href="#i-next"/></svg></button>
+    </div>
+    <div class="mini-prog"><div class="slider seek" id="miniSeek"><div class="fill"></div><div class="knob"></div></div><div class="mini-times"><span id="miniCur">0:00</span><span id="miniDur">0:00</span></div></div>
+  </div>
+  <div class="mini-hover">
+    <button class="ib sm" data-m="layout" title="Change layout"><svg><use href="#i-layers"/></svg></button>
+    <button class="ib sm" data-m="custom" title="Customize"><svg><use href="#i-palette"/></svg></button>
+    <button class="ib sm" data-m="pin" title="Always on top"><svg><use href="#i-pin"/></svg></button>
+    <button class="ib sm" data-m="exit" title="Back to full player"><svg><use href="#i-expand"/></svg></button>
+  </div>
+  <div class="mini-drag" id="miniDrag"></div>
+</section>
+
+<div id="grips"><div class="g r" data-g="r"></div><div class="g b" data-g="b"></div><div class="g br" data-g="br"></div></div>
+<div id="layer"></div>
+<div id="toasts"></div>
+<div id="boot"><div class="boot-logo"><span></span><span></span><span></span><span></span></div></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
