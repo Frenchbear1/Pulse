@@ -129,6 +129,7 @@ export const lib = {
       } catch (e) { console.warn('cover', e); this.coverErrors.unshift(String(e?.message || e)); this.coverErrors.length = Math.min(this.coverErrors.length, 5); return null; }
     })();
     this.coverJobs.set(key, job);
+    job.then((k) => { if (!k) this.coverJobs.delete(key); }); // a failed try can be retried later ("Find missing covers")
     return job;
   },
   async parseInto(stub) {

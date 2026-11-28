@@ -90,7 +90,7 @@ public static class PulseWin {
     try {
       if (!guard) {
         guard = await N().os.spawnProcess(psCmd(`[PulseWin]::Watch(${window.NL_PID})`));
-        N().events.on('spawnedProcess', (e) => { if (e.detail.id !== guard?.id) return; if (e.detail.action === 'stdOut') { p.frameFix = String(e.detail.data).trim().split('\n').pop(); console.log('[pulse] window:', p.frameFix); } if (e.detail.action === 'stdErr') p.frameFix = 'error: ' + String(e.detail.data).slice(0, 200); if (e.detail.action === 'exit') guard = null; });
+        if (!fixFrame.wired) fixFrame.wired = true, N().events.on('spawnedProcess', (e) => { if (e.detail.id !== guard?.id) return; if (e.detail.action === 'stdOut') { p.frameFix = String(e.detail.data).trim().split('\n').pop(); console.log('[pulse] window:', p.frameFix); } if (e.detail.action === 'stdErr') p.frameFix = 'error: ' + String(e.detail.data).slice(0, 200); if (e.detail.action === 'exit') guard = null; });
       }
       await N().os.updateSpawnedProcess(guard.id, 'stdIn', acrylic ? 'blur 1\n' : 'blur 0\n');
     } catch (e) {
