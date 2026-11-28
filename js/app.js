@@ -242,7 +242,7 @@ function wireShell() {
     document.addEventListener('pointerdown', async (e) => {
       if (e.button !== 0) return; const z = e.target.closest(dragAreas.join(',')); if (!z || e.target.closest('button, input, a, label, .np-src')) return;
       if (W._max) return; // maximized stays put — use the button or double-click the bar to restore
-      W.drag();
+      W.dragFrom(e);
     });
     $('#titlebar').addEventListener('dblclick', (e) => { if (!e.target.closest('button, input, a, label')) $('#wMax').click(); });
     wireGrips();

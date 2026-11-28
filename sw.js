@@ -1,5 +1,5 @@
 // Pulse service worker: app shell offline cache (songs live in IndexedDB).
-const V = 'pulse-v13';
+const V = 'pulse-v14';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/core.js', 'js/views.js', 'js/np.js', 'js/player.js', 'js/library.js', 'js/tags.js', 'js/util.js', 'js/platform-web.js', 'js/spotify.js', 'js/coverworker.js', 'js/companion.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });

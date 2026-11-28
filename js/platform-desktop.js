@@ -59,16 +59,39 @@ public static class PulseWin {
     }, IntPtr.Zero);
     return log == "" ? "no window" : log;
   }
+  // Long-lived guard: re-applies the fix if the window ever becomes layered again, and takes "blur 1/0" commands on stdin.
+  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+  static volatile int want = 0; static volatile bool quit = false;
+  public static void Watch(uint pid) {
+    var reader = new System.Threading.Thread(() => { string l; while ((l = Console.In.ReadLine()) != null) { l = l.Trim(); if (l == "blur 1") want = 1; else if (l == "blur 0") want = 0; else if (l == "exit") break; } quit = true; });
+    reader.IsBackground = true; reader.Start();
+    Console.WriteLine(Fix(pid, false)); int applied = 0;
+    while (!quit) {
+      System.Threading.Thread.Sleep(400);
+      try { System.Diagnostics.Process.GetProcessById((int)pid); } catch { return; }
+      bool layered = false;
+      EnumWindows((h, l) => { uint wp; GetWindowThreadProcessId(h, out wp); if (wp != pid) return true; var sb = new StringBuilder(64); GetClassName(h, sb, 64); if (sb.ToString() == "Neutralinojs_webview" && (GetWindowLong(h, -20) & 0x80000) != 0) layered = true; return true; }, IntPtr.Zero);
+      if (layered || applied != want) { applied = want; Console.WriteLine((layered ? "re-fixed " : "") + Fix(pid, want == 1)); }
+    }
+  }
 }`;
+  let guard = null;
+  const psCmd = (body) => {
+    const dll = (dataDir + '/pulsewin6.dll').replace(/\//g, '\\');
+    const ps = `$ErrorActionPreference='Stop'; $d='${dll}'; if (Test-Path $d) { Add-Type -Path $d } else { Add-Type -TypeDefinition @'\n${WINFIX_CS}\n'@ -OutputAssembly $d; Add-Type -Path $d }; ${body}`;
+    return `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ${btoa(String.fromCharCode(...new Uint8Array(new Uint16Array([...ps].map((c) => c.charCodeAt(0))).buffer)))}`;
+  };
   async function fixFrame(acrylic) {
     try {
-      const dll = (dataDir + '/pulsewin5.dll').replace(/\//g, '\\');
-      const ps = `$ErrorActionPreference='Stop'; $d='${dll}'; if (Test-Path $d) { Add-Type -Path $d } else { Add-Type -TypeDefinition @'\n${WINFIX_CS}\n'@ -OutputAssembly $d; Add-Type -Path $d }; [PulseWin]::Fix(${window.NL_PID}, $${acrylic ? 'true' : 'false'})`;
-      const enc = btoa(String.fromCharCode(...new Uint8Array(new Uint16Array([...ps].map((c) => c.charCodeAt(0))).buffer)));
-      const r = await N().os.execCommand(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ${enc}`);
-      p.frameFix = (r.stdOut || '').trim() || (r.stdErr || '').trim().slice(0, 300);
-      console.log('[pulse] window fix:', p.frameFix);
-    } catch (e) { p.frameFix = 'failed: ' + (e.message || e); }
+      if (!guard) {
+        guard = await N().os.spawnProcess(psCmd(`[PulseWin]::Watch(${window.NL_PID})`));
+        N().events.on('spawnedProcess', (e) => { if (e.detail.id !== guard?.id) return; if (e.detail.action === 'stdOut') { p.frameFix = String(e.detail.data).trim().split('\n').pop(); console.log('[pulse] window:', p.frameFix); } if (e.detail.action === 'stdErr') p.frameFix = 'error: ' + String(e.detail.data).slice(0, 200); if (e.detail.action === 'exit') guard = null; });
+      }
+      await N().os.updateSpawnedProcess(guard.id, 'stdIn', acrylic ? 'blur 1\n' : 'blur 0\n');
+    } catch (e) {
+      // fall back to a one-shot fix
+      try { const r = await N().os.execCommand(psCmd(`[PulseWin]::Fix(${window.NL_PID}, $${acrylic ? 'true' : 'false'})`)); p.frameFix = (r.stdOut || r.stdErr || '').trim().slice(0, 300); } catch (e2) { p.frameFix = 'failed: ' + (e2.message || e2); }
+    }
   }
 
   const p = {
@@ -226,10 +249,24 @@ public static class PulseWin {
       async toggleMax() { return p.win._max ? p.win.restore() : p.win.maximize(); },
       async maximize() { if (p.win._max) return; await N().window.setFullScreen(); p.win._max = true; p.emit('maxchange', true); },
       async restore() { if (!p.win._max) return; await N().window.exitFullScreen(); p.win._max = false; p.emit('maxchange', false); },
+      close: () => p.emit('close'),
+      exit: () => N().app.exit(),
       setSize: (w, h) => N().window.setSize({ width: Math.round(w), height: Math.round(h), resizable: false }),
       getSize: () => N().window.getSize(),
       getPos: () => N().window.getPosition(),
       move: (x, y) => N().window.move(Math.round(x), Math.round(y)),
+      // Drag the window ourselves (pointer capture + move) instead of handing the mouse to Windows' move loop,
+      // which can leave the page thinking the button is still held — the source of a "dead" title bar.
+      dragFrom(e, onEnd) {
+        const el = e.currentTarget?.setPointerCapture ? e.currentTarget : e.target; const dpr = devicePixelRatio || 1; const sx = e.screenX, sy = e.screenY;
+        let base = null, moved = false, busy = false, want = null;
+        N().window.getPosition().then((b) => { base = b; if (want) step(); }).catch(() => {});
+        try { el.setPointerCapture(e.pointerId); } catch {}
+        const step = async () => { if (busy || !base) return; busy = true; while (want) { const [dx, dy] = want; want = null; try { await N().window.move(Math.round(base.x + dx * dpr), Math.round(base.y + dy * dpr)); } catch {} } busy = false; };
+        const mv = (ev) => { const dx = ev.screenX - sx, dy = ev.screenY - sy; if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return; moved = true; want = [dx, dy]; step(); };
+        const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); try { el.releasePointerCapture(e.pointerId); } catch {} const wait = () => (busy || want ? setTimeout(wait, 16) : onEnd?.(moved)); wait(); };
+        el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      },
       onTop: (v) => N().window.setAlwaysOnTop(!!v),
       isMax: async () => p.win._max,
       unmax: () => p.win.restore(),

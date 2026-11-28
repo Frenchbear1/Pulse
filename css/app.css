@@ -116,9 +116,10 @@ body.web #titlebar { padding-right: 14px; }
 .scan-pill .refresh { display: none; margin-left: 2px; padding: 3px 9px; border-radius: 999px; background: rgba(var(--acc-rgb), .2); color: var(--tx); font-weight: 650; font-size: 11.5px; }
 .scan-pill.has-new .refresh { display: inline-block; }
 /* rolling digits */
-.flipnum { font-variant-numeric: tabular-nums; white-space: pre; }
-.flipnum .dg { position: relative; display: inline-block; transform-origin: 50% 50%; }
-.flipnum { position: relative; display: inline-block; } .flipnum .dg-old { position: absolute; text-align: center; pointer-events: none; transform-origin: 50% 50%; }
+.flipnum { white-space: pre; display: inline-flex; align-items: baseline; }
+.flipnum .dg { display: inline-block; width: .6em; height: .74em; position: relative; }
+.flipnum .dg svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; fill: none; stroke: currentColor; stroke-width: var(--dg-w, 1.95); stroke-linecap: round; stroke-linejoin: round; }
+.flipnum .dg-t { display: inline-block; }
 @keyframes digitIn { from { opacity: 0; } to { opacity: 1; } }
 .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(var(--acc-rgb), .25); border-top-color: rgb(var(--acc-rgb)); animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }

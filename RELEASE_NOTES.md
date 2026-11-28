@@ -4,6 +4,10 @@
 
 Windows may show "Windows protected your PC" because the app isn't code-signed — click **More info → Run anyway**.
 
+## What's new in 1.4.1
+- **Title bar fixed for good:** dragging is now handled inside Pulse (no more handing the mouse to Windows' move loop, which could leave the bar unresponsive), the missing drag/close/quit functions are restored, and a small background helper keeps the window's click-fix in place if anything ever undoes it
+- **True number morph:** digits are drawn as vector strokes and smoothly bend into the next number — no flipping or fading
+
 ## What's new in 1.4.0
 - **Side panel is now a built-in card** next to your library (open by default), following your blur/transparency/roundness. One button in the player bar (or P) shows/hides it; tabs are Now playing, Queue, Lyrics, Devices
 - **Mini player can be its own window** next to the full app (Settings → Mini player → Opens as: Separate window). Customizing it opens your real mini player beside Pulse — no more mock preview

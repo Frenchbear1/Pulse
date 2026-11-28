@@ -348,8 +348,6 @@ export async function keepOnScreen() {
 }
 // beginDrag hands the move to Windows, so watch the position until it settles, then pull it back on screen
 async function afterDrag() {
-  const W = app.P.win; let last = null, still = 0;
-  for (let i = 0; i < 200 && still < 3; i++) { await new Promise((r) => setTimeout(r, 120)); const p = await W.getPos().catch(() => null); const k = p && p.x + ',' + p.y; still = k === last ? still + 1 : 0; last = k; }
   const pos = await keepOnScreen(); if (!pos) return;
   if (app.companion) companionSend('geom', pos); else { app.S.mini.x = pos.x; app.S.mini.y = pos.y; app.saveS(); }
 }
@@ -434,7 +432,7 @@ function wireMini() {
   // drag window from anywhere that's not a control
   // every layout drags from anywhere that isn't a control (images can't start an HTML drag and steal it)
   mini.addEventListener('dragstart', (e) => e.preventDefault());
-  mini.addEventListener('pointerdown', (e) => { if (e.button !== 0 || e.target.closest('button, .slider, .mini-hover.open')) return; e.preventDefault(); app.P.win.drag(); afterDrag(); });
+  mini.addEventListener('pointerdown', (e) => { if (e.button !== 0 || e.target.closest('button, .slider, .mini-hover.open')) return; e.preventDefault(); app.P.win.dragFrom(e, (moved) => moved && afterDrag()); });
   mini.addEventListener('dblclick', (e) => { if (!e.target.closest('button, .slider')) exitMini(); });
   mini.addEventListener('wheel', (e) => { player.setVolume(app.S.volume - Math.sign(e.deltaY) * 0.05); toast(`Volume ${Math.round(app.S.volume * 100)}%`, 700); }, { passive: true });
   mini.addEventListener('contextmenu', (e) => { e.preventDefault(); miniMenu({ x: e.clientX, y: e.clientY }); });

@@ -14,7 +14,7 @@ export const DEFAULTS = {
   npView: 'panel',
   gest: { right: 'queue', left: 'like', miniSwipe: true, miniUp: true, npDown: true, artSwipe: true, artDouble: true, haptics: true }
 };
-export const VERSION = '1.4.0';
+export const VERSION = '1.4.1';
 export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
@@ -280,31 +280,69 @@ export function marquee(wrap) {
 }
 
 // Rolling digit counters: each digit is a little reel that glides to its new value.
-// Numbers: a changed digit morphs into the next one in place — the old glyph blurs, squashes and dissolves while the
-// new one forms out of it, overlapping, so there's never an empty slot or layout shift.
-const MORPH_OUT = [{ opacity: 1, filter: 'blur(0)', transform: 'translateY(0) scale(1, 1)' }, { opacity: 0, filter: 'blur(3px)', transform: 'translateY(-28%) scale(.85, .55)' }];
-const MORPH_IN = [{ opacity: 0, filter: 'blur(3px)', transform: 'translateY(28%) scale(.85, .55)' }, { opacity: 1, filter: 'blur(0)', transform: 'translateY(0) scale(1, 1)' }];
+// ---------------- Morphing numbers ----------------
+// Every digit is one continuous vector stroke resampled to the same number of points, so changing a digit
+// interpolates each point to its new spot: the old glyph literally bends into the new one — no flip, no fade, no gap.
+const DG_N = 72;
+const DIGITS = (() => {
+  const rad = Math.PI / 180;
+  const arc = (cx, cy, rx, ry, a0, a1, n = 40) => Array.from({ length: n + 1 }, (_, i) => { const t = (a0 + (a1 - a0) * i / n) * rad; return [cx + rx * Math.cos(t), cy + ry * Math.sin(t)]; });
+  const line = (x0, y0, x1, y1, n = 12) => Array.from({ length: n + 1 }, (_, i) => [x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n]);
+  const raw = [
+    arc(5, 8, 4.1, 7, -90, 270, 64),
+    [...line(2.2, 4.2, 6, 1), ...line(6, 1, 6, 15)],
+    [...arc(5, 5, 3.9, 4, 192, 398, 40), ...line(8.65, 7.6, 1.2, 15), ...line(1.2, 15, 9, 15)],
+    [...arc(5, 4.35, 3.45, 3.3, 205, 450, 36), ...arc(5, 11.35, 3.95, 3.65, 270, 517, 40)],
+    [...line(7.2, 15, 7.2, 1), ...line(7.2, 1, 1, 10.8), ...line(1, 10.8, 9.6, 10.8)],
+    [...line(8.6, 1, 2.5, 1), ...line(2.5, 1, 1.9, 7.6), ...arc(5.1, 10.5, 3.95, 4.5, 222, 519, 40)],
+    [...arc(9.6, 10.6, 8.4, 9, 249, 180, 24), ...arc(5.05, 10.9, 3.9, 4.1, 180, 540, 44)],
+    [...line(1, 1, 9, 1), ...line(9, 1, 3.6, 15)],
+    [...arc(5, 11.45, 4, 3.6, 270, 630, 44), ...arc(5, 4.4, 3.45, 3.4, 90, -270, 40)],
+    [...arc(4.95, 5.1, 3.9, 4.1, 0, -360, 44), ...arc(0.4, 5.4, 8.45, 9, 0, 71, 24)]
+  ];
+  // resample each stroke to DG_N points evenly spaced along its length
+  return raw.map((pts) => {
+    const seg = [0]; for (let i = 1; i < pts.length; i++) seg.push(seg[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const L = seg[seg.length - 1]; const out = []; let j = 1;
+    for (let k = 0; k < DG_N; k++) { const d = L * k / (DG_N - 1); while (j < seg.length - 1 && seg[j] < d) j++; const t = (d - seg[j - 1]) / (seg[j] - seg[j - 1] || 1); out.push(pts[j - 1][0] + (pts[j][0] - pts[j - 1][0]) * t, pts[j - 1][1] + (pts[j][1] - pts[j - 1][1]) * t); }
+    return Float32Array.from(out);
+  });
+})();
+const dgPath = (p) => { let d = 'M' + p[0].toFixed(2) + ' ' + p[1].toFixed(2); for (let i = 2; i < p.length; i += 2) d += 'L' + p[i].toFixed(2) + ' ' + p[i + 1].toFixed(2); return d; };
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2); // smooth in-out
+const morphing = new Set(); let morphRAF = 0;
+function morphLoop(now) {
+  for (const c of morphing) {
+    const t = Math.min(1, (now - c._t0) / c._dur); const e = ease(t); const cur = c._cur;
+    for (let i = 0; i < cur.length; i++) cur[i] = c._from[i] + (c._to[i] - c._from[i]) * e;
+    c._path.setAttribute('d', dgPath(cur)); if (t >= 1) morphing.delete(c);
+  }
+  morphRAF = morphing.size ? requestAnimationFrame(morphLoop) : 0;
+}
+function digitCell(ch) {
+  const c = document.createElement('span'); c.className = 'dg';
+  c.innerHTML = '<svg viewBox="-1.6 -0.5 13.2 17" aria-hidden="true"><path/></svg>';
+  c._path = c.querySelector('path'); c._cur = Float32Array.from(DIGITS[+ch]); c._d = ch; c._path.setAttribute('d', dgPath(c._cur));
+  return c;
+}
 export function flip(el, text) {
   if (!el) return; text = String(text);
   if (el._flip === text) return;
   const prev = el._flip; el._flip = text;
-  if (prev == null || prev.length !== text.length || !el._cells) {
-    el.classList.add('flipnum'); el.textContent = '';
-    el._cells = [...text].map((ch) => { const c = document.createElement('span'); c.className = 'dg'; c.textContent = ch; el.appendChild(c); return c; });
+  const shape = (t) => t.replace(/\d/g, '0');
+  if (prev == null || shape(prev) !== shape(text) || !el._cells) {
+    el.classList.add('flipnum'); el.textContent = ''; el.setAttribute('aria-label', text);
+    el._cells = [...text].map((ch) => { if (/\d/.test(ch)) { const c = digitCell(ch); el.appendChild(c); return c; } const s = document.createElement('span'); s.className = 'dg-t'; s.textContent = ch; el.appendChild(s); return null; });
     return;
   }
-  const off = app.S?.anim === 'off' || document.hidden; const dur = app.S?.anim === 'low' ? 260 : 420;
+  el.setAttribute('aria-label', text);
+  const instant = app.S?.anim === 'off' || document.hidden; const dur = app.S?.anim === 'low' ? 380 : 620;
   [...text].forEach((ch, i) => {
-    const c = el._cells[i]; if (c.textContent === ch) return;
-    if (off) { c.textContent = ch; return; }
-    c._old?.remove();
-    const old = document.createElement('span'); old.className = 'dg-old'; old.textContent = c.textContent;
-    old.style.left = c.offsetLeft + 'px'; old.style.top = c.offsetTop + 'px'; old.style.width = c.offsetWidth + 'px'; old.style.height = c.offsetHeight + 'px';
-    c.textContent = ch; el.appendChild(old); c._old = old;
-    const ease = 'cubic-bezier(.3,.7,.2,1)';
-    old.animate(MORPH_OUT, { duration: dur * 0.8, easing: ease, fill: 'forwards' }).onfinish = () => old.remove();
-    c.animate(MORPH_IN, { duration: dur, easing: ease });
+    const c = el._cells[i]; if (!c || c._d === ch) return; c._d = ch;
+    if (instant) { c._cur.set(DIGITS[+ch]); c._path.setAttribute('d', dgPath(c._cur)); morphing.delete(c); return; }
+    c._from = Float32Array.from(c._cur); c._to = DIGITS[+ch]; c._t0 = performance.now(); c._dur = dur; morphing.add(c);
   });
+  if (morphing.size && !morphRAF) morphRAF = requestAnimationFrame(morphLoop);
 }
 
 // Slider helper (pointer drag, keyboard)
