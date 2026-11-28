@@ -3,8 +3,8 @@ import { readTags } from './tags.js';
 import { hashStr, hashBytes, pool, processCover, debounce, norm, sortKey, uid, cmpText } from './util.js';
 
 // One rule for splitting "A feat. B, C & D" everywhere (index, links, Go to artist), so every artist link has a page.
-// A bare slash stays (AC/DC); " / " with spaces splits.
-export const ARTIST_SEP_SRC = '\\s*(;|,| / | feat\\.? | ft\\.? | featuring | & )\\s*';
+// A bare slash stays (AC/DC); " / " with spaces splits; " x " splits collabs ("A x B") as it always did.
+export const ARTIST_SEP_SRC = '\\s*(;|,| / | feat\\.? | ft\\.? | featuring | & | x (?!feat|ft|featuring|& ))\\s*';
 export const splitArtists = (a) => String(a || '').split(new RegExp(ARTIST_SEP_SRC, 'i')).filter((_, i) => i % 2 === 0).map((x) => x.trim()).filter(Boolean);
 export const primaryArtist = (a) => splitArtists(a)[0] || '';
 export const albumKeyOf = (t) => norm(t.albumArtist || t.compArtist || primaryArtist(t.artist) || 'Unknown Artist') + '\u0001' + norm(t.album || 'Unknown Album');

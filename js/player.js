@@ -212,7 +212,9 @@ export const player = {
     return null;
   },
   advance(manual) { // move pointers and return the next id that still exists
-    for (let i = 0; i < 200; i++) { const id = this._advance(manual); if (!id || lib.track(id)) return id; }
+    // skip every stale id (e.g. a removed music folder), however many: bounded by the queue itself
+    const max = this.upNext.length + this.order.length + 1;
+    for (let i = 0; i < max; i++) { const id = this._advance(manual); if (!id || lib.track(id)) return id; }
     return null;
   },
   _advance(manual) {
@@ -308,7 +310,8 @@ export const player = {
   toggle() { this.playing ? this.pause() : this.play(); },
   seek(t) { if (this.liveMode) return; const d = this.duration; if (!d && !t) { this.el.currentTime = 0; return; } this.el.currentTime = clamp(t, 0, Math.max(0, d - 0.25)); this.emit('time'); this.updatePosition(); },
   seekBy(dt) { this.seek(this.time + dt); },
-  setPlaying(v) { if (this.playing === v) return; this.playing = v; this.emit('state', v); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = v ? 'playing' : 'paused'; },
+  flushListened() { if (this._lid && this._acc) lib.listened?.(this._lid, this._acc); this._acc = 0; this._lt = 0; },
+  setPlaying(v) { if (this.playing === v) return; if (!v) this.flushListened(); this.playing = v; this.emit('state', v); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = v ? 'playing' : 'paused'; },
 
   onTime() {
     const t = this.time, d = this.duration;

@@ -21,6 +21,8 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     /// Position inside `order` of the current context song (-1 = nothing yet).
     public private(set) var position: Int = -1
     public private(set) var upNext: [SongID] = []
+    /// True while an Up Next song plays in front of the context song at `position`, so Previous goes back to that song.
+    public private(set) var playingFromUpNext: Bool? = nil
     public private(set) var shuffle = false
     public var repeatMode: RepeatMode = .off
     public private(set) var source: PlaybackSource?
@@ -43,6 +45,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     ) -> SongID? {
         guard !ids.isEmpty else { return nil }
         context = ids
+        playingFromUpNext = nil
         self.source = source
         if let shuffle { self.shuffle = shuffle }
         var start = min(max(0, startIndex), ids.count - 1)
@@ -103,7 +106,8 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     /// the end of the list wraps around).
     public mutating func advance(manual: Bool, current: SongID?) -> SongID? {
         if repeatMode == .one && !manual { return current }
-        if !upNext.isEmpty { return upNext.removeFirst() }
+        if !upNext.isEmpty { playingFromUpNext = true; return upNext.removeFirst() }
+        playingFromUpNext = nil
         if position + 1 < order.count { position += 1; return context[order[position]] }
         if repeatMode == .all || (manual && !order.isEmpty) {
             if shuffle && repeatMode == .all, let first = order.first {
@@ -118,6 +122,10 @@ public struct PlayQueue: Codable, Sendable, Equatable {
 
     /// Previous song, or nil meaning "restart the current one" (also when >3 s in; caller decides).
     public mutating func retreat() -> SongID? {
+        if playingFromUpNext == true {
+            playingFromUpNext = nil
+            if order.indices.contains(position) { return context[order[position]] }   // back to the song Up Next interrupted
+        }
         if position > 0 { position -= 1 } else if repeatMode == .all, !order.isEmpty { position = order.count - 1 } else { return nil }
         return context[order[position]]
     }
@@ -126,6 +134,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     public mutating func jump(toOrderPosition p: Int) -> SongID? {
         guard order.indices.contains(p) else { return nil }
         position = p
+        playingFromUpNext = nil
         return context[order[p]]
     }
 
@@ -134,6 +143,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         guard upNext.indices.contains(i) else { return nil }
         let id = upNext[i]
         upNext.removeFirst(i + 1)
+        playingFromUpNext = true
         return id
     }
 

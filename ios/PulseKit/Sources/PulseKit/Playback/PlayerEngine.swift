@@ -419,7 +419,10 @@ public final class PlayerEngine {
         sleepTimer = minutes.map { .at(Date().addingTimeInterval(TimeInterval($0) * 60)) } ?? .off
         applyVolume()
     }
-    public func setSleepAtEndOfSong() { sleepTimer = .endOfSong }
+    public func setSleepAtEndOfSong() {
+        sleepTimer = .endOfSong
+        invalidateGapless(force: true)   // a follower queued in the last 8 s would play straight past the timer
+    }
 
     private func sleepFire() {
         sleepTimer = .off
@@ -506,8 +509,8 @@ public final class PlayerEngine {
 
     /// The queue changed after the next song was pre-scheduled: re-schedule the current song from
     /// where it is (one tiny re-buffer) so the wrong song doesn't follow.
-    private func invalidateGapless() {
-        guard let pending = deck.gaplessNext, pending.songID != queue.peekNext(current: currentSongID) else { return }
+    private func invalidateGapless(force: Bool = false) {
+        guard let pending = deck.gaplessNext, force || pending.songID != queue.peekNext(current: currentSongID) else { return }
         let wasPlaying = isPlaying
         let t = deck.position(isRunning: engine.isRunning)
         stop(deck)

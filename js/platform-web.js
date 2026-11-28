@@ -1,14 +1,16 @@
 // iPhone / iPad / browser adapter. Songs you import are copied into the app's private
 // storage (IndexedDB) so they keep working offline and after the Files app moves things around.
 import { isAudio } from './tags.js';
-import { hashStr, cachedReader } from './util.js';
+import { hashStr, cachedReader, toast } from './util.js';
 
 function idb() {
   return new Promise((res, rej) => {
     const r = indexedDB.open('pulse', 2); // v2 adds 'videos' (video files + their subtitles); existing stores are kept
     r.onupgradeneeded = () => { const d = r.result; for (const s of ['kv', 'files', 'covers', 'videos']) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); };
     r.onsuccess = () => { const d = r.result; d.onversionchange = () => { d.close(); dbp = null; }; d.onclose = () => { dbp = null; }; res(d); }; r.onerror = () => rej(r.error);
-    r.onblocked = () => console.warn('IndexedDB upgrade waiting for another Pulse tab to close');
+    // An older Pulse tab is holding the old database open and can't be asked to let go: say so, so startup isn't a silent hang.
+    // The upgrade finishes by itself the moment that tab closes or reloads.
+    r.onblocked = () => { console.warn('IndexedDB upgrade waiting for another Pulse tab to close'); toast('Pulse is open in another tab. Close or reload it to finish updating.', 15000); };
   });
 }
 let dbp;

@@ -28,6 +28,8 @@ public final class LibraryStore {
     /// Called after any change (debounced) - the app uses it to refresh widgets and the watch.
     @ObservationIgnored public var onDidChange: (() -> Void)?
 
+    /// Set when an existing library file failed to load: nothing is written over it this session.
+    public private(set) var readOnly = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var changeTask: Task<Void, Never>?
     /// Resolved root URLs whose security-scoped access is currently open (rootID -> URL).
@@ -43,7 +45,17 @@ public final class LibraryStore {
     public func load() async {
         guard !isLoaded else { return }
         let url = AppGroup.libraryURL
+        let exists = FileManager.default.fileExists(atPath: url.path)
         let loaded = await Task.detached(priority: .userInitiated) { JSONFile.read(LibraryDatabase.self, from: url) }.value
+        if loaded == nil && exists {
+            // A file we can't read is not a first launch: never let an empty library overwrite it.
+            // Keep a copy beside it and stay read-only until the next launch reads it cleanly.
+            readOnly = true
+            lastError = "Your library file couldn't be read, so changes won't be saved this session. A copy was kept as library.unreadable.json."
+            let copy = url.deletingLastPathComponent().appendingPathComponent("library.unreadable.json")
+            try? FileManager.default.removeItem(at: copy)
+            try? FileManager.default.copyItem(at: url, to: copy)
+        }
         db = loaded ?? LibraryDatabase()
         db.repairTree()
         ensureDocumentsRoot()
@@ -60,6 +72,7 @@ public final class LibraryStore {
 
     public func saveNow() async {
         saveTask?.cancel()
+        guard !readOnly else { return }
         let snapshot = db, url = AppGroup.libraryURL
         await Task.detached(priority: .utility) { try? JSONFile.write(snapshot, to: url) }.value
     }
@@ -278,8 +291,10 @@ public final class LibraryStore {
         let byID = Dictionary(files.map { (Song.makeID(rootID: rootID, relativePath: $0.relativePath), $0) },
                               uniquingKeysWith: { a, _ in a })
 
-        // Missing files leave the library (and their playlists / stats).
-        let gone = db.songs.values.filter { $0.rootID == rootID && byID[$0.id] == nil }.map(\.id)
+        // Missing files leave the library (and their playlists / stats). Files iCloud is still
+        // downloading are not missing: keep them (and their likes / playlists) until a scan says otherwise.
+        let pendingIDs = Set(pending.map { Song.makeID(rootID: rootID, relativePath: $0) })
+        let gone = db.songs.values.filter { $0.rootID == rootID && byID[$0.id] == nil && !pendingIDs.contains($0.id) }.map(\.id)
         if !gone.isEmpty { db.removeSongs(gone) }
 
         // New files, or files whose size/date changed since we read them (e.g. tags edited).
@@ -289,7 +304,7 @@ public final class LibraryStore {
             return s.fileSize != f.size || s.modified != f.modified
         }
         scan?.total = todo.count
-        scan?.waitingForDownload = pending
+        scan?.waitingForDownload = pending.count
 
         let cache = artwork
         var applied = 0

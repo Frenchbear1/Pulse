@@ -24,19 +24,20 @@ enum FolderScanner {
     static let folderArtNames = ["cover", "folder", "front", "album", "albumart", "albumartsmall"]
     static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "heic", "webp"]
 
-    static func list(_ base: URL) -> (files: [ScannedFile], pendingDownloads: Int) {
+    /// `pendingPaths` are relative paths of audio files iCloud is still downloading: they exist, just not locally yet.
+    static func list(_ base: URL) -> (files: [ScannedFile], pendingPaths: Set<String>) {
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
                                       .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
         // Not .skipsHiddenFiles: iCloud Drive can represent not-yet-downloaded files as hidden
         // ".Name.mp3.icloud" placeholders that we want to notice (and ask to download).
         guard let walker = fm.enumerator(at: base, includingPropertiesForKeys: keys,
-                                         options: [.skipsPackageDescendants]) else { return ([], 0) }
+                                         options: [.skipsPackageDescendants]) else { return ([], []) }
         let basePath = base.standardizedFileURL.path
         var audio: [URL] = []
         var lrc = Set<String>()                  // lowercased relative paths without extension
         var art: [String: URL] = [:]             // relative dir (lowercased) -> art file
-        var pending = 0
+        var pending = Set<String>()
 
         for case let url as URL in walker {
             let name = url.lastPathComponent
@@ -46,7 +47,7 @@ enum FolderScanner {
                     let real = url.deletingLastPathComponent()
                         .appendingPathComponent(String(name.dropFirst().dropLast(".icloud".count)))
                     if audioExtensions.contains(real.pathExtension.lowercased()) {
-                        try? fm.startDownloadingUbiquitousItem(at: real); pending += 1
+                        try? fm.startDownloadingUbiquitousItem(at: real); pending.insert(relative(real, to: basePath))
                     }
                 }
                 if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true { walker.skipDescendants() }
@@ -63,7 +64,7 @@ enum FolderScanner {
                 if art[dir] == nil { art[dir] = url }
             } else if audioExtensions.contains(ext) {
                 if rv.isUbiquitousItem == true, rv.ubiquitousItemDownloadingStatus != .current {
-                    try? fm.startDownloadingUbiquitousItem(at: url); pending += 1
+                    try? fm.startDownloadingUbiquitousItem(at: url); pending.insert(rel)
                     continue
                 }
                 audio.append(url)
