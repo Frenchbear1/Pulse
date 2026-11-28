@@ -800,7 +800,7 @@ R.settings = () => {
     opt('Font', '', segOf('font', [['system', 'Clean'], ['rounded', 'Rounded'], ['serif', 'Editorial'], ['mono', 'Mono']]));
   if (app.isDesktop) look += opt('Window transparency', 'See your desktop through the whole window', rng('winOpacity', 0.35, 1, 0.01, 'pct'));
   look += '</div>';
-  if (app.isDesktop) look += `<h3>Window</h3><div class="set-group">` + opt('Blur what’s behind the window', `Real Windows 11 blur shows through the see-through parts (mini player, window opacity). Takes effect next launch.<br><span style="opacity:.6">Window fix: ${esc(app.P.frameFix || 'not run yet')}</span>`, tog('winBlur', S.winBlur !== false)) + `</div>`;
+  if (app.isDesktop) look += `<h3>Window</h3><div class="set-group">` + opt('Blur what’s behind the window', `Real Windows 11 blur behind the see-through parts (mini player, window opacity). Windows then uses its own smaller corner rounding. Takes effect next launch.<br><span style="opacity:.6">Window fix: ${esc(app.P.frameFix || 'not run yet')}</span>`, tog('winBlur', S.winBlur === true)) + `</div>`;
   look += `<h3>Motion & layout</h3><div class="set-group">` + opt('Animations', '', segOf('anim', [['full', 'Full'], ['low', 'Subtle'], ['off', 'Off']])) + opt('Compact rows', 'Fit more songs on screen', tog('compact', S.compact)) + opt('Blur inactive lyric lines', '', tog('blurLyrics', S.blurLyrics)) + '</div>';
   el.appendChild(h(`<div>${look}</div>`));
   if (cur && !artURL) app.P.coverURL(cur, true).then((u) => { const a = el.querySelector('[data-tpart]'); if (u && a) a.style.backgroundImage = `url(${u})`; });
@@ -844,7 +844,7 @@ R.settings = () => {
   el.addEventListener('click', async (e) => {
     const t = e.target;
     const gg = t.closest('[data-gest]'); if (gg) { const k = gg.dataset.gest; S.gest[k] = !S.gest[k]; gg.classList.toggle('on', S.gest[k]); app.saveS(); return; }
-    const tg = t.closest('[data-tog]'); if (tg) { const k = tg.dataset.tog; S[k] = k === 'winBlur' ? S[k] === false : !S[k]; tg.classList.toggle('on', S[k]); app.saveS(); applyTheme(); if (k === 'leveler') player.applyLeveler(); return; }
+    const tg = t.closest('[data-tog]'); if (tg) { const k = tg.dataset.tog; S[k] = !S[k]; tg.classList.toggle('on', S[k]); app.saveS(); applyTheme(); if (k === 'leveler') player.applyLeveler(); return; }
     const pr = t.closest('[data-preset]'); if (pr) { applyPreset(pr.dataset.preset); refresh(); return; }
     const a2 = t.closest('[data-acc2]'); if (a2) { S.accent2 = a2.dataset.acc2; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }
     if (t.closest('[data-wall]')) { const pic = await pickImage(); if (!pic) return; S.wallpaper = await shrinkImage(pic); S.bgMode = 'wallpaper'; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }

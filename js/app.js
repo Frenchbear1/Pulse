@@ -111,8 +111,13 @@ function wireShell() {
     go(v);
   });
   $('#navBack').onclick = back; $('#navFwd').onclick = fwd;
+  const closeDrawer = () => { document.body.classList.remove('side-drawer'); applyTheme(); };
+  $('#sideScrim').onclick = closeDrawer;
+  $('#side').addEventListener('click', (e) => { if (document.body.classList.contains('side-drawer') && e.target.closest('a[data-go], .tnode, .side-item') && !e.target.closest('.caret')) setTimeout(closeDrawer, 60); });
+  addEventListener('resize', debounce(() => applyTheme(), 120));
   $('#btnSide').onclick = () => {
     const b = document.body; if (b.classList.contains('side-anim')) return;
+    if (b.classList.contains('side-narrow')) { b.classList.toggle('side-drawer'); applyTheme(); rerenderTrees(); return; }
     b.classList.add('side-anim');
     setTimeout(() => { app.S.sideMini = !app.S.sideMini; app.saveS(); applyTheme(); rerenderTrees(); }, 140);
     setTimeout(() => b.classList.remove('side-anim'), 140 + 300);
@@ -130,7 +135,7 @@ function wireShell() {
   const like = (btn) => { const t = player.track; if (!t) return; lib.like(t.id); if (lib.isLiked(t.id)) burst(btn); };
   $('#barLike').onclick = (e) => like(e.currentTarget); $('#mbLike').onclick = (e) => { e.stopPropagation(); like(e.currentTarget); };
   $('#barArt').onclick = () => NP.showNowPlaying(); $('#bFull').onclick = () => NP.openNP(true);
-  $('#mbar').onclick = () => NP.openNP();
+  $('#mbar').onclick = (e) => { if (e.target.closest('#mbDev')) { e.stopPropagation(); NP.openNP(); NP.npRight('devices'); return; } NP.openNP(); };
   // mini bar: swipe left/right to skip, swipe up to open Now Playing
   { const mb = $('#mbar'); let sx = 0, sy = 0, lock = null, dx = 0; const meta = () => mb.querySelector('.mb-meta'), art = () => mb.querySelector('.mb-art');
     mb.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; lock = null; dx = 0; }, { passive: true });

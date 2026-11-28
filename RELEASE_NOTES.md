@@ -4,6 +4,15 @@
 
 Windows may show "Windows protected your PC" because the app isn't code-signed — click **More info → Run anyway**.
 
+## What's new in 1.3.2
+- Narrow windows keep the title bar (minimize / maximize / close / drag) and the resize edges
+- The sidebar opens as a drawer over the content when the window is too narrow, instead of refusing to expand
+- Phone-width player bar redone: everything vertically centered, full-width progress line, Devices + Like + Play
+- Full-screen player shrinks the cover to fit short windows so the controls never get cut off
+- Fixed clipped shadows on the sidebar and on scrolling rows of cards; slim scrollbar on desktop
+- Square window corners/outline removed; Windows blur is now opt-in (Settings → Window)
+- Taskbar hover previews show the real window again
+
 ## What's new in 1.3.1
 - **Fixed clicks going through Pulse to apps behind it, and the top bar freezing after maximize.** Neutralino made the see-through window a "layered" window that Windows hit-tested against an empty surface. Pulse now switches it to DWM transparency at launch, so every pixel of Pulse is Pulse (and Windows 11 can blur what's behind the see-through parts). Status shows in Settings → Window.
 - F11 toggles full screen

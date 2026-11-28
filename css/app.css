@@ -250,6 +250,7 @@ body:not(.light) .actions.stuck { background: rgba(var(--bg-rgb), .6); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--card, 172px), 1fr)); gap: 8px; margin: 0 -10px; }
 .grid.row { grid-auto-flow: column; grid-auto-columns: calc(var(--card, 172px) + 20px); justify-content: start; grid-template-columns: none; overflow-x: auto; overflow-y: visible; padding: 4px 0 14px; margin-bottom: -10px; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .grid.row::-webkit-scrollbar { display: none; }
+.grid.row { padding-top: 8px !important; padding-bottom: 30px !important; margin-bottom: -16px !important; }
 .card { padding: 10px; border-radius: calc(var(--r) - 2px); transition: background .25s, transform .3s var(--spring); position: relative; scroll-snap-align: start; min-width: 0; animation: cardIn .45s var(--ease) both; animation-delay: calc(var(--i, 0) * 22ms); cursor: pointer; }
 @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.97); } }
 .card:hover { background: var(--s1); transform: translateY(-3px); }
@@ -673,7 +674,6 @@ body:not(.booting) #boot { opacity: 0; visibility: hidden; }
 }
 @media (min-width: 761px) { .mob-only { display: none !important; } }
 @media (max-width: 1100px) and (min-width: 761px) { .tlist { --cols: 30px minmax(160px, 4fr) minmax(100px, 2.6fr) 34px 52px 32px; } .tlist .ad, .thead .ad { display: none; } .vol { width: 100px; } }
-@media (max-width: 1000px) and (min-width: 761px) { :root { --side-w: 84px; } #side .side-nav a span, #side .side-title span, #side .side-chips, #side .side-item .t, #side .tnode .t, #side .tnode .caret, #sideNew, #side .tchildren::before { display: none; } #side .side-item, #side .tnode { justify-content: center; } #side .side-nav a, #side .side-title { justify-content: center; padding: 0; } }
 /* ---------- mini player (desktop) — adaptive to its window size ---------- */
 .miniplayer { display: none; position: fixed; inset: 0; overflow: hidden; border-radius: var(--mini-r, 14px); color: #fff; container-type: size; }
 body.mini #mini { display: block; }
@@ -971,6 +971,40 @@ body.side-mini #sideTools { display: none; }
 .tb-search kbd { opacity: 0; transition: opacity .2s; }
 .tb-search:hover kbd { opacity: 1; } .tb-search:focus-within kbd { opacity: 0; }
 /* sidebar collapse/expand: fade contents, animate width, fade back in */
-#side { overflow: hidden; }
+body.side-anim #side { overflow: hidden; }
 #side > * { transition: opacity .14s ease; }
 body.side-anim #side > * { opacity: 0; }
+
+/* ---------- narrow desktop windows: sidebar becomes a drawer over the content ---------- */
+body.side-narrow { --side-w: 84px; }
+body.side-drawer #side { position: fixed; z-index: 45; left: var(--gap); top: var(--tb-h); bottom: calc(var(--bar-h) + var(--gap) * 2); width: 300px; padding-right: 0; animation: drawerIn .32s var(--spring); }
+body.side-drawer #side .side-nav, body.side-drawer #side .side-lib { box-shadow: 0 24px 60px rgba(0,0,0,.55), inset 0 0 0 1px var(--edge); }
+body:not(.light).side-drawer #side .side-nav, body:not(.light).side-drawer #side .side-lib { background: rgba(var(--bg-rgb), .9); }
+#sideScrim { position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,.35); display: none; animation: fadeIn .2s; }
+body.side-drawer #sideScrim { display: block; }
+@keyframes drawerIn { from { transform: translateX(-30px); opacity: 0; } }
+
+/* ---------- phone-width layout on desktop: keep the title bar, resize grips and a scrollbar ---------- */
+@media (max-width: 760px) {
+  body.desktop { --tb-h: 46px; }
+  body.desktop #titlebar { display: flex !important; position: fixed; top: 0; left: 0; right: 0; height: var(--tb-h); margin: 0; padding-left: 8px; z-index: 30; }
+  body.desktop #titlebar #btnSide, body.desktop #titlebar .tb-search, body.desktop #titlebar #btnSettings { display: none; }
+  body.desktop #grips { display: block !important; }
+  body.desktop #main { top: var(--tb-h); }
+  body.desktop .mob-search { padding-top: 6px; }
+  body.desktop #np .np-top { padding-top: 10px; }
+  /* player above the tabs */
+  #mbar { grid-template-columns: 48px minmax(0, 1fr) auto auto auto; gap: 6px; padding: 8px 8px 8px 8px; height: 66px; align-content: center; }
+  #mbar > .mb-prog { position: absolute; left: 14px; right: 14px; bottom: 3px; height: 2.5px; }
+  .mb-art { width: 48px; height: 48px; border-radius: 12px; }
+  .mb-meta { padding-left: 6px; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+  #mbar .ib { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; }
+  #mbar .ib svg { width: 23px; height: 23px; }
+  #mbar .mb-dev svg { width: 21px; height: 21px; }
+  #mbar .like.on { color: rgb(var(--acc-rgb)); }
+  /* full-screen player fits short windows */
+  .np-art { width: min(100%, max(150px, calc(100dvh - 400px))); align-self: center; }
+}
+/* visible slim scrollbar on desktop everywhere */
+body.desktop #view { scrollbar-width: thin; scrollbar-color: var(--s3) transparent; }
+body.desktop.win-acrylic { --win-r: 8px; } body.desktop.win-acrylic.maxed { --win-r: 0px; }

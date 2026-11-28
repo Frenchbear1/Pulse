@@ -49,6 +49,8 @@ public static class PulseWin {
       int r1 = DwmEnableBlurBehindWindow(h, ref b);       // keeps per-pixel transparency without a layered window
       int r2 = -1;
       if (acrylic) { var m = new MG(); m.l = m.r = m.t = m.b = -1; DwmExtendFrameIntoClientArea(h, ref m); int dark = 1; DwmSetWindowAttribute(h, 20, ref dark, 4); int bd = 3; r2 = DwmSetWindowAttribute(h, 38, ref bd, 4); }
+      int noBorder = unchecked((int)0xFFFFFFFE); DwmSetWindowAttribute(h, 34, ref noBorder, 4);   // no Windows 11 outline
+      int corner = acrylic ? 2 : 1; DwmSetWindowAttribute(h, 33, ref corner, 4);                   // round (with blur) / leave our own rounded corners alone
       SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x27);
       log += "hwnd ex=" + ex.ToString("X") + " blur=" + r1 + " acrylic=" + r2 + ";";
       return true;
@@ -58,7 +60,7 @@ public static class PulseWin {
 }`;
   async function fixFrame(acrylic) {
     try {
-      const dll = (dataDir + '/pulsewin3.dll').replace(/\//g, '\\');
+      const dll = (dataDir + '/pulsewin4.dll').replace(/\//g, '\\');
       const ps = `$ErrorActionPreference='Stop'; $d='${dll}'; if (Test-Path $d) { Add-Type -Path $d } else { Add-Type -TypeDefinition @'\n${WINFIX_CS}\n'@ -OutputAssembly $d; Add-Type -Path $d }; [PulseWin]::Fix(${window.NL_PID}, $${acrylic ? 'true' : 'false'})`;
       const enc = btoa(String.fromCharCode(...new Uint8Array(new Uint16Array([...ps].map((c) => c.charCodeAt(0))).buffer)));
       const r = await N().os.execCommand(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ${enc}`);
@@ -81,7 +83,7 @@ public static class PulseWin {
       N().events.on('windowClose', () => p.emit('close'));
       N().events.on('watchFile', debounce(() => p.emit('fschange'), 1500));
       N().events.on('trayMenuItemClicked', (e) => p.emit('tray', e.detail.id));
-      if (window.NL_OS === 'Windows') { const ac = (() => { try { return JSON.parse(localStorage.getItem('pulse.settings') || '{}').winBlur !== false; } catch { return true; } })(); setTimeout(() => fixFrame(ac), 300); p.fixFrame = fixFrame; }
+      if (window.NL_OS === 'Windows') { const ac = (() => { try { return JSON.parse(localStorage.getItem('pulse.settings') || '{}').winBlur === true; } catch { return true; } })(); setTimeout(() => fixFrame(ac), 300); p.fixFrame = fixFrame; }
     },
     on(fn) { listeners.add(fn); },
     emit(type, data) { listeners.forEach((f) => f(type, data)); },
@@ -227,7 +229,7 @@ public static class PulseWin {
       isMax: async () => p.win._max,
       unmax: () => p.win.restore(),
       hide: () => N().window.hide(),
-      show: async () => { await N().window.show(); await N().window.focus(); if (window.NL_OS === 'Windows') fixFrame((() => { try { return JSON.parse(localStorage.getItem('pulse.settings') || '{}').winBlur !== false; } catch { return true; } })()); },
+      show: async () => { await N().window.show(); await N().window.focus(); if (window.NL_OS === 'Windows') fixFrame((() => { try { return JSON.parse(localStorage.getItem('pulse.settings') || '{}').winBlur === true; } catch { return true; } })()); },
       setTray(items) { return N().os.setTray({ icon: '/resources/icons/tray.png', menuItems: items }).catch(() => {}); },
       notify: (title, body) => N().os.showNotification(title, body).catch(() => {}),
       openURL: (u) => N().os.open(u)

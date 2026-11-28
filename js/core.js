@@ -14,7 +14,7 @@ export const DEFAULTS = {
   npView: 'panel',
   gest: { right: 'queue', left: 'like', miniSwipe: true, miniUp: true, npDown: true, artSwipe: true, artDouble: true, haptics: true }
 };
-export const VERSION = '1.3.1';
+export const VERSION = '1.3.2';
 export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
@@ -72,7 +72,7 @@ export function applyTheme() {
   for (const f of ['rounded', 'serif', 'mono']) b.classList.toggle('f-' + f, S.font === f);
   b.classList.toggle('compact', !!S.compact);
   b.classList.toggle('anim-off', S.anim === 'off'); b.classList.toggle('anim-low', S.anim === 'low');
-  b.classList.toggle('side-mini', !!S.sideMini); b.classList.toggle('blur-lyrics', !!S.blurLyrics);
+  b.classList.toggle('win-acrylic', !!S.winBlur && !!app.isDesktop); const narrow = innerWidth > 760 && innerWidth <= 1000; b.classList.toggle('side-narrow', narrow); if (!narrow) b.classList.remove('side-drawer'); b.classList.toggle('side-mini', narrow ? !b.classList.contains('side-drawer') : !!S.sideMini); b.classList.toggle('blur-lyrics', !!S.blurLyrics);
   const st = document.documentElement.style; const light = theme === 'light';
   st.setProperty('--alpha', app.isDesktop ? S.winOpacity : 1); st.setProperty('--glow', S.glow);
   st.setProperty('--card', S.gridSize + 'px');
