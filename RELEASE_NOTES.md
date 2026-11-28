@@ -4,6 +4,19 @@
 
 Windows may show "Windows protected your PC" because the app isn't code-signed — click **More info → Run anyway**.
 
+## What's new in 1.6.0
+- **Videos** (sidebar, or Library → Videos on iPhone): play your own video files with subtitles (.srt/.vtt), resume where you left off, Continue watching, next in folder with an Up next countdown, picture-in-picture, speed, full screen and keyboard/touch controls. On Windows add a video folder (files stay where they are); on iPhone import them. "Add from link" saves a direct video file you own; streaming sites are not supported
+- **Practice mode** (⋯ menu in the player bar, Sound panel on iPhone, or Shift+P): loop any part A–B (drag the handles or press [ and ]), slow it down without changing pitch, a speed trainer that starts slow and speeds up as you repeat, a pause between repeats, and bookmarks (press B)
+- **Made for you** on Home: Daily Mixes from what you play, Forgotten Favorites, Fresh Imports, Deep Cuts, tempo mixes and a Time Capsule, refreshed every day
+- **Your stats**: minutes listened, day streak, when you listen, top artists and songs for 7 days, 30 days or the year
+- **Smarter shuffle**: leans toward songs you like, away from songs you keep skipping, and keeps one artist from playing back to back (Settings → Playback)
+- **Long recordings resume**: audiobooks, mixes and podcasts over 20 minutes pick up where you stopped
+- **Compilations** (soundtracks, "Now 80s") are grouped as one album under Various Artists instead of many one-song albums
+- **Much faster with big libraries**: Albums and Artists open about 10× faster at 20,000 songs and nothing is cut off any more
+- **Your library is safer**: Pulse never saves an empty library over your real one after a failed read, and on Windows keeps a backup copy (library.bak)
+- **iPhone**: the lock screen shows next/previous instead of ±10 s, mute works, songs keep playing after editing the queue, starts faster on a weak connection and works offline again
+- Fixed: a paused song could resume silently or end up paused after quick taps; the sleep timer could leave the volume low; songs that fail no longer skip forever; Previous after "Play next" goes back to the right song; removing a song from a filtered playlist removed the wrong one; dialogs closed with Esc now cancel properly; AC/DC stays one artist; and about 30 smaller fixes
+
 ## What's new in 1.5.0
 - **Radio & Sounds** (sidebar chip, phone tab, and a row on Home)
   - **Endless sounds made live on your device** — no internet, never repeats: Endless Lo-fi (generative beats, chords, bass, vinyl crackle), Rain, Thunderstorm, Ocean, Creek, Fireplace, Ambient Drift, Brown/Pink/White noise, and binaural Focus / Relax / Meditate / Sleep

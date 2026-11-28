@@ -37,11 +37,15 @@ export const player = {
       a.addEventListener('timeupdate', () => i === this.active && this.onTime());
       a.addEventListener('ended', () => i === this.active && this.onEnded());
       a.addEventListener('play', () => i === this.active && this.setPlaying(true));
-      a.addEventListener('pause', () => i === this.active && !this.fading && this.setPlaying(false));
+      a.addEventListener('pause', () => i === this.active && !this._inGap && !this._swapping && this.setPlaying(false));
       a.addEventListener('loadedmetadata', () => { if (i === this.active) { lib.setDuration(this.current, a.duration); this.emit('time'); this.updatePosition(); } });
       a.addEventListener('waiting', () => i === this.active && this.emit('buffer', true));
-      a.addEventListener('playing', () => i === this.active && this.emit('buffer', false));
-      a.addEventListener('error', () => { if (i === this.active && this.current) { this.emit('error', this.track); setTimeout(() => this.next(true), 600); } });
+      a.addEventListener('playing', () => { if (i === this.active) { this._errRun = 0; this.emit('buffer', false); } });
+      a.addEventListener('error', () => {
+        if (i !== this.active) { if (this.preloaded?.el === a) this.preloaded = null; return; } // a broken preload: just forget it
+        if (!this.current || !a.getAttribute('src')) return;
+        this.failed(this.track);
+      });
       this.els.push(a);
     }
     // radio / generated sound: a separate element outside the effects graph (streams rarely allow processing)
@@ -53,9 +57,32 @@ export const player = {
     L.addEventListener('playing', () => this.liveMode && this.emit('buffer', false));
     L.addEventListener('error', () => { if (this.liveMode && L.src) { this.emit('error', this.track); this.setPlaying(false); } });
     this.applyVolume(); this.applySpeed();
+    // iPhone only lets an audio element start on its own (locked screen, gapless swap) if it was started
+    // once from a tap. On the first tap, give the spare element a split second of silence.
+    if (isIOS) {
+      const SILENT = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+      const unlock = () => {
+        removeEventListener('pointerdown', unlock, true); removeEventListener('keydown', unlock, true);
+        for (const a of this.els) {
+          if (a === this.el || a.getAttribute('src')) continue;
+          a.src = SILENT;
+          a.play().then(() => a.pause()).catch(() => {}).finally(() => { if (a.getAttribute('src') === SILENT) { a.removeAttribute('src'); a.load(); } });
+        }
+      };
+      addEventListener('pointerdown', unlock, true); addEventListener('keydown', unlock, true);
+    }
     const want = settings.engine === 'on' || (settings.engine !== 'off' && !isIOS);
     if (want) this.enableEngine();
     this.setupMediaSession();
+  },
+
+  // A song that can't play: skip to the next one, but stop if many in a row fail
+  // (a moved or deleted folder) instead of spinning forever.
+  failed(t) {
+    this.emit('error', t);
+    this._errRun = (this._errRun || 0) + 1;
+    if (this._errRun >= Math.min(8, Math.max(2, this.ctxList.length))) { this._errRun = 0; this.setPlaying(false); this.emit('errorstop'); return; }
+    clearTimeout(this._errT); this._errT = setTimeout(() => this.next(true), 600);
   },
 
   // ---------- Web Audio engine ----------
@@ -75,8 +102,8 @@ export const player = {
     id = id || 'default'; const sid = id === 'default' ? '' : id;
     if (this.engineOn && this.ctx?.setSinkId) await this.ctx.setSinkId(sid);
     else if (this.canPickOutput()) await Promise.all(this.els.map((a) => a.setSinkId(sid)));
-    if (this.live?.setSinkId) await this.live.setSinkId(sid).catch(() => {});
     else throw new Error('unsupported');
+    if (this.live?.setSinkId) await this.live.setSinkId(sid).catch(() => {});
     this.settings.sink = id; this.settings.sinkLabel = label || ''; this.save?.(); this.emit('output');
   },
   async restoreOutput() {
@@ -119,8 +146,8 @@ export const player = {
   applyVolume() {
     const v = this.settings.muted ? 0 : Math.pow(clamp(this.settings.volume ?? 0.8, 0, 1), 1.6);
     if (this.engineOn) this.nodes.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
-    else this.els.forEach((a) => (a.volume = v));
-    if (this.live) this.live.volume = v;
+    else this.els.forEach((a) => { a.volume = v; a.muted = !!this.settings.muted; });
+    if (this.live) { this.live.volume = v; this.live.muted = !!this.settings.muted; }
     this.emit('volume');
   },
   applySpeed() { for (const a of this.els) { a.playbackRate = this.settings.speed || 1; a.preservesPitch = a.webkitPreservesPitch = this.settings.keepPitch !== false; } },
@@ -145,7 +172,13 @@ export const player = {
       o.splice(startIdx, 1);
       for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; }
       // soften: avoid the same artist back-to-back when possible
-      for (let i = 1; i < o.length; i++) { const a = lib.track(this.ctxList[o[i - 1]])?.artist, b = lib.track(this.ctxList[o[i]])?.artist; if (a && a === b) { const k = o.findIndex((x, j) => j > i && lib.track(this.ctxList[x])?.artist !== a); if (k > 0) [o[i], o[k]] = [o[k], o[i]]; } }
+      // smart shuffle: songs you keep skipping drift toward the back, liked / loved ones toward the front
+      if (this.settings.smartShuffle !== false && o.length > 8) {
+        const w = (x) => { const id = this.ctxList[x]; const sk = lib.db.skips?.[id] || 0, pl = lib.db.plays?.[id] || 0; return Math.min(3, sk * 0.6) - Math.min(0.8, pl * 0.04) - (lib.db.liked?.[id] ? 0.6 : 0); };
+        const keyed = o.map((x, i) => [i / o.length * 4 + w(x) + Math.random() * 1.5, x]); keyed.sort((a, b) => a[0] - b[0]); o.splice(0, o.length, ...keyed.map((k) => k[1]));
+      }
+      const art = (x) => lib.track(this.ctxList[x])?.artist;
+      for (let i = 1; i < o.length; i++) { const a = art(o[i - 1]); if (a && a === art(o[i])) { for (let k = i + 1; k < Math.min(o.length, i + 60); k++) if (art(o[k]) !== a) { [o[i], o[k]] = [o[k], o[i]]; break; } } }
       o.unshift(startIdx);
     } else { /* natural */ }
     this.order = o;
@@ -155,7 +188,10 @@ export const player = {
     this.shuffle = !this.shuffle; this.settings.shuffle = this.shuffle;
     if (this.ctxList.length) {
       const curIdx = this.order[this.pos] ?? 0;
+      const heard = this.shuffle ? this.order.slice(0, Math.max(0, this.pos)) : [];
       this.buildOrder(curIdx); this.pos = this.shuffle ? 0 : curIdx;
+      // keep what you've already heard behind you, so Previous still walks back through it
+      if (this.shuffle && heard.length) { const hs = new Set(heard); this.order = [...heard, ...this.order.filter((x) => !hs.has(x))]; this.pos = heard.length; }
     }
     this.preloaded = null; this.emit('mode'); this.emit('queue'); this.saveSettings();
   },
@@ -169,14 +205,21 @@ export const player = {
   jumpTo(p) { this.pos = p; this.load(this.ctxList[this.order[p]], true); this.emit('queue'); },
   peekNext() {
     if (this.repeat === 'one') return this.current;
+    while (this.upNext.length && !lib.track(this.upNext[0])) this.upNext.shift();
     if (this.upNext.length) return this.upNext[0];
     if (this.pos + 1 < this.order.length) return this.ctxList[this.order[this.pos + 1]];
     if (this.repeat === 'all' && this.order.length) return this.ctxList[this.order[0]];
     return null;
   },
-  advance(manual) { // move pointers and return next id
+  advance(manual) { // move pointers and return the next id that still exists
+    // skip every stale id (e.g. a removed music folder), however many: bounded by the queue itself
+    const max = this.upNext.length + this.order.length + 1;
+    for (let i = 0; i < max; i++) { const id = this._advance(manual); if (!id || lib.track(id)) return id; }
+    return null;
+  },
+  _advance(manual) {
     if (this.repeat === 'one' && !manual) return this.current;
-    if (this.upNext.length) { return this.upNext.shift(); }
+    if (this.upNext.length) { const id = this.upNext.shift(); this._nextFromUp = id; return id; }
     if (this.pos + 1 < this.order.length) { this.pos++; return this.ctxList[this.order[this.pos]]; }
     if (this.repeat === 'all' || (manual && this.order.length)) {
       if (this.shuffle && this.repeat === 'all') { this.buildOrder(this.order[0]); }
@@ -185,11 +228,14 @@ export const player = {
     return null;
   },
   next(manual = true) {
+    // a skip early in a song teaches smart shuffle what you're not in the mood for
+    if (manual && this.current && !this.liveMode && !this.countedPlay && this.time > 1 && this.time < 30) lib.skipped?.(this.current);
     const id = this.advance(manual);
     if (!id) { this.pause(); this.el.currentTime = 0; this.emit('ended'); return; }
     this.load(id, true); this.emit('queue');
   },
   prev() {
+    if (this.time <= 3 && this.fromUpNext && lib.track(this.ctxList[this.order[this.pos]])) { this.load(this.ctxList[this.order[this.pos]], true); this.emit('queue'); return; }
     if (this.time > 3 || this.pos <= 0 && !this.upNext.length && this.repeat !== 'all') { this.seek(0); return; }
     if (this.pos > 0) this.pos--; else if (this.repeat === 'all') this.pos = this.order.length - 1;
     this.load(this.ctxList[this.order[this.pos]], true); this.emit('queue');
@@ -197,25 +243,29 @@ export const player = {
 
   async load(id, autoplay, startAt = 0) {
     const t = lib.track(id); if (!t) return;
-    this.cancelFade();
+    clearTimeout(this._errT); this.cancelFade();
+    this.fromUpNext = this._nextFromUp === id; this._nextFromUp = null; this._wasPaused = false;
     if (t.live) return this.loadLive(t, autoplay);
-    if (this.liveMode) { lib.track(this.current)?.stop?.(); this.live.pause(); this.live.srcObject = null; this.live.removeAttribute('src'); this.liveMode = false; }
+    if (this.liveMode) { (this.liveTrack || lib.track(this.current))?.stop?.(); this.liveTrack = null; this.live.pause(); this.live.srcObject = null; this.live.removeAttribute('src'); this.live.load(); this.liveMode = false; }
+    if (this.loop && this.current !== id) this.clearLoop(true);
     this.current = id; this.countedPlay = false; this.loading = true;
     this.emit('track', t);
     let url, el = this.el;
-    if (this.preloaded?.id === id && this.preloaded.el === this.other) {
+    if (this.preloaded?.id === id && this.preloaded.srcSet && this.preloaded.el === this.other && !this.other.error && this.other.getAttribute('src')) {
       // swap to preloaded element: instant start
-      this.el.pause(); this.active = 1 - this.active; el = this.el;
+      this._swapping = true; this.el.pause(); this._swapping = false; this.active = 1 - this.active; el = this.el;
+      if (el.readyState >= 1) { lib.setDuration(id, el.duration); this.updatePosition(); }
       if (this.engineOn) { this.nodes.gains[this.active].gain.value = 1; this.nodes.gains[1 - this.active].gain.value = 0; }
       this.preloaded = null;
     } else {
       url = await this.P.audioURL(t);
       if (this.current !== id) return;
-      if (!url) { this.emit('error', t); return; }
+      if (!url) { this.loading = false; this.failed(t); return; }
       el.src = url;
       if (this.engineOn) { this.nodes.gains[this.active].gain.value = 1; this.nodes.gains[1 - this.active].gain.value = 0; }
     }
     this.applySpeed();
+    const rp = lib.db.resume?.[id]; if (!startAt && rp && this.settings.resumeLong !== false) startAt = rp;
     if (startAt) { const set = () => { try { el.currentTime = startAt; } catch {} }; if (el.readyState >= 1) set(); else el.addEventListener('loadedmetadata', set, { once: true }); }
     this.loading = false;
     if (autoplay) this.play(); else this.emit('time');
@@ -223,57 +273,77 @@ export const player = {
     this.preloaded = null;
   },
   async loadLive(t, autoplay) {
-    const prev = lib.track(this.current); if (prev?.live && prev !== t) prev.stop?.();
-    this.els.forEach((a) => a.pause());
-    this.liveMode = true; this.current = t.id; this.countedPlay = true; this.emit('track', t);
-    const L = this.live; L.srcObject = null; L.removeAttribute('src');
+    // stop the sound that is actually running (the registry may have swapped its object since)
+    const prev = this.liveTrack || lib.track(this.current); if (prev?.live && prev !== t) prev.stop?.();
+    clearTimeout(this._errT); this.els.forEach((a) => a.pause());
+    this.liveMode = true; this.liveTrack = t; this.current = t.id; this.countedPlay = true; this.emit('track', t);
+    const L = this.live; L.srcObject = null; L.removeAttribute('src'); L.load();
     if (t.stream) L.srcObject = await t.stream(); else L.src = t.url;
     this.applyVolume(); this.updateMediaSession();
     if (autoplay) this.play(); else this.emit('time');
   },
   async play() {
+    this._pauseTok = (this._pauseTok || 0) + 1; // cancels a pending fade-out pause
+    if (this._inGap) { clearTimeout(this._gapT); this._inGap = false; }
     if (!this.current) { const all = Object.keys(lib.db.tracks); if (all.length) this.playList(all, 0, { type: 'songs', label: 'All songs' }, { randomStart: true }); return; }
     if (this.ctx && this.ctx.state !== 'running') this.ctx.resume();
-    if (this.liveMode) { const t = this.track; t?.resume?.(); try { await this.live.play(); } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); } return; }
+    if (this.liveMode) { const t = this.liveTrack || this.track; t?.resume?.(); try { await this.live.play(); } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); } return; }
     try {
-      if (this.engineOn && this.settings.fadePause !== false) { const g = this.nodes.gains[this.active].gain; g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(0.0001, this.ctx.currentTime); g.exponentialRampToValueAtTime(1, this.ctx.currentTime + 0.18); }
+      if (this.engineOn && this.settings.fadePause !== false && this._wasPaused && this.el.currentTime > 0) { const g = this.nodes.gains[this.active].gain; g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(0.0001, this.ctx.currentTime); g.exponentialRampToValueAtTime(1, this.ctx.currentTime + 0.18); }
+      else if (this.engineOn && !this.fading) { const g = this.nodes.gains[this.active].gain; g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(1, this.ctx.currentTime); }
+      this._wasPaused = false;
       await this.el.play();
+      if (!this.el.paused) this.setPlaying(true); // no 'play' event fires if the element never actually stopped
     } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); }
   },
   pause() {
-    if (this.liveMode) { this.live.pause(); this.track?.suspend?.(); return; }
+    if (this._inGap) { clearTimeout(this._gapT); this._inGap = false; this.setPlaying(false); return; }
+    if (this.liveMode) { this.live.pause(); (this.liveTrack || this.track)?.suspend?.(); return; }
+    this.cancelFade(); this._wasPaused = true;
     if (this.engineOn && this.settings.fadePause !== false && !this.el.paused) {
       const g = this.nodes.gains[this.active].gain; const el = this.el;
       g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(g.value || 1, this.ctx.currentTime); g.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 0.16);
-      this.setPlaying(false); setTimeout(() => { if (!this.playing) el.pause(); }, 170);
+      const tok = this._pauseTok = (this._pauseTok || 0) + 1;
+      this.setPlaying(false); setTimeout(() => { if (tok === this._pauseTok && !this.playing) el.pause(); }, 170);
     } else this.el.pause();
   },
   toggle() { this.playing ? this.pause() : this.play(); },
   seek(t) { if (this.liveMode) return; const d = this.duration; if (!d && !t) { this.el.currentTime = 0; return; } this.el.currentTime = clamp(t, 0, Math.max(0, d - 0.25)); this.emit('time'); this.updatePosition(); },
   seekBy(dt) { this.seek(this.time + dt); },
-  setPlaying(v) { if (this.playing === v) return; this.playing = v; this.emit('state', v); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = v ? 'playing' : 'paused'; },
+  flushListened() { if (this._lid && this._acc) lib.listened?.(this._lid, this._acc); this._acc = 0; this._lt = 0; },
+  setPlaying(v) { if (this.playing === v) return; if (!v) this.flushListened(); this.playing = v; this.emit('state', v); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = v ? 'playing' : 'paused'; },
 
   onTime() {
     const t = this.time, d = this.duration;
+    // listening stats: count real seconds heard (not seeks)
+    const now = performance.now(); if (this._lid && this._lid !== this.current && this._acc) { lib.listened?.(this._lid, this._acc); this._acc = 0; }
+    if (this.playing && this._lt && this._lid === this.current) { const dt = (now - this._lt) / 1000 * (this.el.playbackRate || 1); if (dt > 0 && dt < 3) this._acc = (this._acc || 0) + dt; }
+    this._lt = now; this._lid = this.current; if (this._acc >= 10) { lib.listened?.(this.current, this._acc); this._acc = 0; }
+    if (this.loop && this.loop.b > this.loop.a && t >= this.loop.b) { this.loopHit(); return; }
     if (!this.countedPlay && this.current && (t > 30 || (d && t > d * 0.5))) { this.countedPlay = true; lib.played(this.current); this.emit('played'); }
     this.emit('time');
-    if (!d) return;
+    // long recordings (20 min+): remember where you were, so they pick up there next time
+    if (d > 1200 && this.settings.resumeLong !== false && lib.db.tracks[this.current] && (!this._rpT || now - this._rpT > 30000)) {
+      this._rpT = now; const rs = lib.db.resume ||= {};
+      if (t > 30 && t < d - 60) rs[this.current] = Math.floor(t); else delete rs[this.current];
+      lib.save();
+    }
+    if (this.sleep?.mode === 'track' && d && d - t < 0.6) { this.sleepFire(); return; }
+    if (!d || this.loop || this.sleep?.mode === 'track') return; // looping or stopping after this song: don't preload/crossfade away
     const remain = d - t;
     const xf = this.engineOn ? (this.settings.crossfade || 0) : 0;
     // preload the next track ~12s before the end for instant/gapless transitions
     if (remain < Math.max(12, xf + 4) && !this.preloaded && !this.fading && this.repeat !== 'one') this.preload();
     if (xf > 0 && remain <= xf && !this.fading && this.preloaded?.ready && this.playing) this.startCrossfade(xf, remain);
-    // sleep timer
-    if (this.sleep?.mode === 'track' && remain < 0.6) { this.sleepFire(); }
   },
   async preload() {
     const id = this.peekNext(); if (!id || id === this.current) return;
-    const t = lib.track(id); const other = this.other;
-    this.preloaded = { id, el: other, ready: false };
+    const t = lib.track(id); if (!t || t.live) return; const other = this.other;
+    this.preloaded = { id, el: other, ready: false, srcSet: false };
     const url = await this.P.audioURL(t);
     if (!url) { this.preloaded = { id: null }; return; }
     if (this.preloaded?.id !== id) return;
-    other.src = url; other.load(); other.playbackRate = this.settings.speed || 1;
+    other.src = url; other.load(); other.playbackRate = this.settings.speed || 1; this.preloaded.srcSet = true;
     other.addEventListener('canplay', () => { if (this.preloaded?.id === id) this.preloaded.ready = true; }, { once: true });
   },
   startCrossfade(xf, remain) {
@@ -285,26 +355,75 @@ export const player = {
     gF.cancelScheduledValues(now); gF.setValueAtTime(gF.value || 1, now); gF.linearRampToValueAtTime(0.0001, now + dur);
     const elFrom = this.els[from]; this.els[to].play().catch(() => {});
     this.active = to; this.current = id; this.countedPlay = false; this.preloaded = null;
-    this.emit('track', this.track); this.emit('queue'); this.updateMediaSession();
+    this.fromUpNext = this._nextFromUp === id; this._nextFromUp = null;
+    this.emit('track', this.track); this.emit('queue'); this.updateMediaSession(); this.updatePosition();
     this._fadeT = setTimeout(() => { elFrom.pause(); this.fading = false; }, dur * 1000 + 80);
   },
   cancelFade() { if (this.fading) { clearTimeout(this._fadeT); this.other.pause(); this.fading = false; } },
   onEnded() {
     if (this.sleep?.mode === 'track') { this.sleepFire(); return; }
-    if (this.repeat === 'one') { this.seek(0); this.play(); return; }
+    if (this.loop) { this.loopHit(); return; }
+    if (this.repeat === 'one') { this.countedPlay = false; this.seek(0); this.play(); return; }
     this.next(false);
   },
 
+  // ---------- practice: A–B loop, speed trainer, pause between repeats ----------
+  // loop = { a, b, hits, gap (s), trainer: { to, step, every } | null }
+  loop: null,
+  setLoopPoint(which, t = this.time) {
+    if (this.liveMode || !this.current) return;
+    const d = this.duration; t = clamp(t, 0, d || t);
+    const L = this.loop || { a: 0, b: d || 0, hits: 0, gap: this.settings.loopGap || 0, trainer: null };
+    if (which === 'a') { L.a = t; if (L.b <= t + 0.3) L.b = Math.min(d || t + 5, t + 5); }
+    else { L.b = t; if (L.a >= t - 0.3) L.a = Math.max(0, t - 5); }
+    this.loop = L; this.startLoopWatch(); this.emit('loop');
+  },
+  setLoop(a, b, opts = {}) {
+    if (this.liveMode || !this.current) return; const d = this.duration;
+    a = clamp(a, 0, d); b = clamp(b, 0, d); if (b - a < 0.3) return this.clearLoop();
+    this.loop = Object.assign({ a, b, hits: 0, gap: this.settings.loopGap || 0, trainer: null }, this.loop && { gap: this.loop.gap, trainer: this.loop.trainer }, opts, { a, b });
+    if (this.time < a || this.time > b) this.seek(a);
+    this.startLoopWatch(); this.emit('loop');
+  },
+  clearLoop(quiet) { this.loop = null; clearInterval(this._loopIv); clearTimeout(this._gapT); this._loopIv = null; if (!quiet) this.emit('loop'); },
+  // timeupdate only fires ~4×/s; check the loop end more often so repeats land on the beat
+  startLoopWatch() { if (this._loopIv) return; this._loopIv = setInterval(() => { const L = this.loop; if (!L) return this.clearLoop(true); if (document.hidden) return; if (this.playing && !this.el.paused && this.el.currentTime >= L.b - 0.02) this.loopHit(); }, 25); },
+  loopHit() {
+    const L = this.loop; if (!L || this._inGap) return;
+    L.hits++;
+    const tr = L.trainer;
+    if (tr && L.hits % (tr.every || 1) === 0) {
+      const cur = this.settings.speed || 1; const nx = Math.round(Math.min(tr.to, cur + tr.step) * 100) / 100;
+      if (nx !== cur) { this.settings.speed = nx; this.applySpeed(); this.saveSettings(); this.emit('speed', nx); }
+    }
+    this.el.currentTime = L.a; this.emit('loop'); this.emit('time');
+    if (L.gap > 0) { this._inGap = true; this.el.pause(); this._gapT = setTimeout(() => { this._inGap = false; if (this.loop) this.el.play().catch(() => {}); }, L.gap * 1000); }
+    else if (this.el.paused) this.el.play().catch(() => {});
+  },
+  // bookmarks inside a song (practice spots, favourite parts)
+  marks(id = this.current) { return (lib.db.marks?.[id] || []).slice().sort((a, b) => a.t - b.t); },
+  addMark(label, t = this.time) { const id = this.current; if (!id || this.liveMode || !lib.db.tracks[id]) return; const m = lib.db.marks ||= {}; (m[id] ||= []).push({ t: Math.round(t * 10) / 10, label: label || '' }); lib.save(); this.emit('marks'); },
+  removeMark(i, id = this.current) { const list = lib.db.marks?.[id]; if (!list) return; const sorted = this.marks(id); const m = sorted[i]; list.splice(list.indexOf(m), 1); if (!list.length) delete lib.db.marks[id]; lib.save(); this.emit('marks'); },
+
   // ---------- sleep timer ----------
   setSleep(mins) {
-    clearInterval(this.sleep?.iv);
+    const wasFading = this.sleep?.faded; clearInterval(this.sleep?.iv);
+    if (wasFading) this.applyVolume();
     if (mins === null) { this.sleep = null; this.emit('sleep'); return; }
     if (mins === 'track') { this.sleep = { mode: 'track' }; this.emit('sleep'); return; }
     const end = Date.now() + mins * 60000;
-    this.sleep = { mode: 'time', end, iv: setInterval(() => { const left = end - Date.now(); if (left <= 0) this.sleepFire(); else if (left < 15000 && this.engineOn) this.nodes.master.gain.setTargetAtTime(Math.pow(this.settings.volume, 1.6) * left / 15000, this.ctx.currentTime, 0.2); this.emit('sleep'); }, 1000) };
+    const sl = this.sleep = { mode: 'time', end, iv: setInterval(() => {
+      const left = end - Date.now(); if (left <= 0) { this.sleepFire(); return; }
+      if (left < 15000 && this.playing && !this.settings.muted) { // gentle fade over the last 15 s
+        sl.faded = true; const v = Math.pow(clamp(this.settings.volume ?? 0.8, 0, 1), 1.6) * left / 15000;
+        if (this.engineOn) this.nodes.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.2); else this.els.forEach((a) => (a.volume = v));
+        if (this.live) this.live.volume = v;
+      }
+      this.emit('sleep');
+    }, 1000) };
     this.emit('sleep');
   },
-  sleepFire() { clearInterval(this.sleep?.iv); this.sleep = null; this.el.pause(); this.setPlaying(false); setTimeout(() => this.applyVolume(), 400); this.emit('sleep'); this.emit('sleepDone'); },
+  sleepFire() { clearInterval(this.sleep?.iv); this.sleep = null; this.cancelFade(); this.el.pause(); this.track?.suspend?.(); this.setPlaying(false); setTimeout(() => this.applyVolume(), 400); this.emit('sleep'); this.emit('sleepDone'); },
 
   // ---------- Media Session (lock screen, media keys, Windows overlay) ----------
   setupMediaSession() {
@@ -312,12 +431,14 @@ export const player = {
     const ms = navigator.mediaSession; const H = (a, f) => { try { ms.setActionHandler(a, f); } catch {} };
     H('play', () => this.play()); H('pause', () => this.pause()); H('stop', () => this.pause());
     H('previoustrack', () => this.prev()); H('nexttrack', () => this.next());
-    H('seekbackward', (d) => this.seekBy(-(d.seekOffset || 10))); H('seekforward', (d) => this.seekBy(d.seekOffset || 10));
+    if (!isIOS) { H('seekbackward', (d) => this.seekBy(-(d.seekOffset || 10))); H('seekforward', (d) => this.seekBy(d.seekOffset || 10)); }
     H('seekto', (d) => this.seek(d.seekTime));
   },
   async updateMediaSession() {
     if (!('mediaSession' in navigator)) return; const t = this.track; if (!t) return;
+    const tok = this._msTok = (this._msTok || 0) + 1;
     const art = t.cover ? await this.P.coverURL(t.cover, false) : null;
+    if (tok !== this._msTok) return; // a newer song took over while the cover loaded
     try {
       navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || 'Unknown Artist', album: t.album || '', artwork: art ? [{ src: art, sizes: '640x640', type: 'image/jpeg' }] : [] });
     } catch {}
@@ -332,10 +453,14 @@ export const player = {
   },
   restore(s) {
     if (!s || !s.current || !lib.track(s.current)) return;
-    this.ctxList = (s.ctxList || []).filter((i) => lib.track(i));
-    this.order = (s.order || []).filter((i) => i < this.ctxList.length);
-    if (this.order.length !== this.ctxList.length) { this.order = this.ctxList.map((_, i) => i); }
-    this.pos = clamp(s.pos || 0, 0, Math.max(0, this.order.length - 1));
+    const oldList = s.ctxList || []; const keep = oldList.map((i) => !!lib.track(i));
+    const remap = []; let n = 0; keep.forEach((k, i) => { remap[i] = k ? n++ : -1; });
+    this.ctxList = oldList.filter((_, i) => keep[i]);
+    const oldOrder = (s.order || []).filter((i) => i >= 0 && i < oldList.length);
+    this.order = oldOrder.map((i) => remap[i]).filter((i) => i >= 0);
+    if (this.order.length !== this.ctxList.length) this.order = this.ctxList.map((_, i) => i);
+    const curIdx = this.ctxList.indexOf(s.current); const at = this.order.indexOf(curIdx);
+    this.pos = at >= 0 ? at : clamp(s.pos || 0, 0, Math.max(0, this.order.length - 1));
     this.upNext = (s.upNext || []).filter((i) => lib.track(i)); this.source = s.source;
     this.load(s.current, false, s.time || 0); this.emit('queue');
   },

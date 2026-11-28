@@ -13,6 +13,11 @@ const idbPut = (k, v) => idbOp('readwrite', (s) => s.put(v, k));
 const idbGet = (k) => idbOp('readonly', (s) => s.get(k));
 const idbDel = (k) => idbOp('readwrite', (s) => s.delete(k));
 const idbAllKeys = () => idbOp('readonly', (s) => s.getAllKeys());
+// videos saved from a link when no video folder is set up live in their own small database
+let _vdb;
+const vdb = () => (_vdb ||= new Promise((res, rej) => { const r = indexedDB.open('pulse-videos', 1); r.onupgradeneeded = () => r.result.createObjectStore('v'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
+const vOp = async (mode, fn) => { const d = await vdb(); return new Promise((res, rej) => { const t = d.transaction('v', mode); const q = fn(t.objectStore('v')); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); };
+const VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv)$/i, SUB_RE = /\.(vtt|srt)$/i;
 
 export function createDesktopPlatform() {
   let dataDir = '', coverDir = '';
@@ -85,7 +90,7 @@ public static class PulseWin {
     try {
       if (!guard) {
         guard = await N().os.spawnProcess(psCmd(`[PulseWin]::Watch(${window.NL_PID})`));
-        N().events.on('spawnedProcess', (e) => { if (e.detail.id !== guard?.id) return; if (e.detail.action === 'stdOut') { p.frameFix = String(e.detail.data).trim().split('\n').pop(); console.log('[pulse] window:', p.frameFix); } if (e.detail.action === 'stdErr') p.frameFix = 'error: ' + String(e.detail.data).slice(0, 200); if (e.detail.action === 'exit') guard = null; });
+        if (!fixFrame.wired) fixFrame.wired = true, N().events.on('spawnedProcess', (e) => { if (e.detail.id !== guard?.id) return; if (e.detail.action === 'stdOut') { p.frameFix = String(e.detail.data).trim().split('\n').pop(); console.log('[pulse] window:', p.frameFix); } if (e.detail.action === 'stdErr') p.frameFix = 'error: ' + String(e.detail.data).slice(0, 200); if (e.detail.action === 'exit') guard = null; });
       }
       await N().os.updateSpawnedProcess(guard.id, 'stdIn', acrylic ? 'blur 1\n' : 'blur 0\n');
     } catch (e) {
@@ -115,14 +120,26 @@ public static class PulseWin {
     on(fn) { listeners.add(fn); },
     emit(type, data) { listeners.forEach((f) => f(type, data)); },
 
+    // Missing file = first run (null). A damaged file falls back to the last good copy (library.bak);
+    // if that fails too it throws, so the app opens read-only instead of saving an empty library over it.
     async loadDB() {
-      try { return JSON.parse(await N().filesystem.readFile(dataDir + '/library.json')); } catch { return null; }
+      const fs = N().filesystem, main = dataDir + '/library.json', bak = dataDir + '/library.bak';
+      const exists = async (f) => { try { await fs.getStats(f); return true; } catch { return false; } };
+      const read = async (f) => JSON.parse(await fs.readFile(f));
+      if (await exists(main)) { try { return await read(main); } catch (e) { console.warn('library.json unreadable, trying backup', e); } }
+      if (await exists(bak)) return read(bak);
+      if (await exists(main)) throw new Error('library.json is damaged');
+      return null;
     },
     async saveDB(db) {
       if (window.PULSE_COMPANION) return;
-      const tmp = dataDir + '/library.tmp';
-      await N().filesystem.writeFile(tmp, JSON.stringify(db));
-      try { await N().filesystem.move(tmp, dataDir + '/library.json'); } catch { await N().filesystem.writeFile(dataDir + '/library.json', JSON.stringify(db)); }
+      // write a temp file, keep the previous library as library.bak, then swap the new one in
+      const fs = N().filesystem, main = dataDir + '/library.json', bak = dataDir + '/library.bak', tmp = dataDir + '/library.' + Date.now().toString(36) + '.tmp';
+      await fs.writeFile(tmp, JSON.stringify(db));
+      try { await fs.remove(bak); } catch {}
+      try { await fs.move(main, bak); } catch {}
+      try { await fs.move(tmp, main); }
+      catch (e) { try { await fs.copy(bak, main); } catch {} try { await fs.remove(tmp); } catch {} throw e; }
     },
 
     // ---- roots ----
@@ -315,7 +332,37 @@ public static class PulseWin {
     async readFileBytes(path) { return new Uint8Array(await N().filesystem.readBinaryFile(path)); },
     openURL(u) { return N().os.open(u); },
     async storageInfo() { return null; },
-    async writeClipboard(t) { try { await N().clipboard.writeText(t); return true; } catch { return false; } }
+    async writeClipboard(t) { try { await N().clipboard.writeText(t); return true; } catch { return false; } },
+
+    // ---- videos (own folders, never touched on disk except "save from link" into a folder you picked) ----
+    // List video files under a video root (mounted like music roots). Subtitles next to a file (name.vtt, name.srt, name.en.srt) are linked.
+    async listVideoRoot(root) {
+      await p.mountRoot(root);
+      const entries = await N().filesystem.readDirectory(root.path, { recursive: true });
+      const base = root.path.replace(/\/+$/, '') + '/';
+      const subs = new Map(), files = [];
+      for (const e of entries) {
+        if (e.type !== 'FILE') continue;
+        const full = e.path.replace(/\\/g, '/');
+        const rel = full.startsWith(base) ? full.slice(base.length) : e.entry;
+        const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+        if (SUB_RE.test(e.entry)) { const stem = rel.replace(SUB_RE, '').toLowerCase(); for (const k of [stem, stem.replace(/\.[a-z]{2,3}(-[a-z]{2})?$/, '')]) { const prev = subs.get(k); if (!prev || (prev.endsWith('.srt') && /\.vtt$/i.test(rel))) subs.set(k, rel); } }
+        else if (VIDEO_RE.test(e.entry)) files.push({ rel, name: e.entry, dir });
+      }
+      return files.map((f) => ({ id: hashStr('v|' + root.id + '|' + f.rel), root: root.id, rel: f.rel, name: f.name, dirs: f.dir ? f.dir.split('/') : [], sub: subs.get(f.rel.replace(/\.[^.]+$/, '').toLowerCase()) || null }));
+    },
+    videoURL(v, rel = v.rel) { return location.origin + '/m_' + v.root + '/' + rel.split('/').map(encodeURIComponent).join('/'); },
+    async readText(v, rel) { const r = await fetch(p.videoURL(v, rel)); if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); },
+    async videoStat(v, root) { try { const st = await N().filesystem.getStats(root.path + '/' + v.rel); return { size: st.size, mtime: st.modifiedAt }; } catch { return null; } },
+    async pathExists(path) { try { await N().filesystem.getStats(path); return true; } catch { return false; } },
+    // write a download into a folder in pieces (first piece creates the file)
+    async writeChunk(path, buf, append) { if (append) await N().filesystem.appendBinaryFile(path, buf); else await N().filesystem.writeBinaryFile(path, buf); },
+    async removeFile(path) { try { await N().filesystem.remove(path); } catch {} },
+    saveVideoFile(id, blob) { return vOp('readwrite', (s) => s.put(blob, id)); },
+    getVideoFile(id) { return vOp('readonly', (s) => s.get(id)); },
+    async deleteVideoFile(id) { await vOp('readwrite', (s) => s.delete(id)); try { await vOp('readwrite', (s) => s.delete('sub:' + id)); } catch {} },
+    saveVideoSub(id, vtt) { return vOp('readwrite', (s) => s.put(vtt, 'sub:' + id)); },
+    async getVideoSub(id) { return (await vOp('readonly', (s) => s.get('sub:' + id))) || null; }
   };
   return p;
 }

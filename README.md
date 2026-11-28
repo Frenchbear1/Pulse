@@ -25,6 +25,10 @@ Both share one codebase: the web app lives at the repo root (served by GitHub Pa
 - Lock-screen / media-key controls (Media Session), tray icon, keyboard shortcuts
 - **Import from Spotify**: guided Exportify walkthrough; Pulse spots the export in your Downloads folder, matches every track against your local files (handles remasters, feat. credits, typos, ISRC), lets you review uncertain matches, rebuilds the playlists, and auto-fills missing songs when they appear in your music folder
 - Backup/restore of playlists, likes and play counts; M3U import/export
+- **Videos**: your own video files with subtitles, resume, Continue watching, Up next, picture-in-picture
+- **Practice mode**: A–B loop, slow down with pitch lock, speed trainer, pause between repeats, bookmarks
+- **Made for you** daily mixes and **Your stats** (minutes, streak, listening hours, top artists and songs)
+- **iPhone app groundwork** (SwiftUI, CarPlay, Watch, widgets) in `ios/` — see `docs/IOS_PLAN.md`
 
 ## Build the Windows exe
 ```

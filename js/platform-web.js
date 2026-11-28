@@ -1,17 +1,27 @@
 // iPhone / iPad / browser adapter. Songs you import are copied into the app's private
 // storage (IndexedDB) so they keep working offline and after the Files app moves things around.
 import { isAudio } from './tags.js';
-import { hashStr, cachedReader } from './util.js';
+import { hashStr, cachedReader, toast } from './util.js';
 
 function idb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('pulse', 1);
-    r.onupgradeneeded = () => { const d = r.result; for (const s of ['kv', 'files', 'covers']) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); };
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    const r = indexedDB.open('pulse', 2); // v2 adds 'videos' (video files + their subtitles); existing stores are kept
+    r.onupgradeneeded = () => { const d = r.result; for (const s of ['kv', 'files', 'covers', 'videos']) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); };
+    r.onsuccess = () => { const d = r.result; d.onversionchange = () => { d.close(); dbp = null; }; d.onclose = () => { dbp = null; }; res(d); }; r.onerror = () => rej(r.error);
+    // An older Pulse tab is holding the old database open and can't be asked to let go: say so, so startup isn't a silent hang.
+    // The upgrade finishes by itself the moment that tab closes or reloads.
+    r.onblocked = () => { console.warn('IndexedDB upgrade waiting for another Pulse tab to close'); toast('Pulse is open in another tab. Close or reload it to finish updating.', 15000); };
   });
 }
 let dbp;
-const tx = async (store, mode, fn) => { const d = await (dbp ||= idb()); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); let out; Promise.resolve(fn(s)).then((v) => { out = v; }); t.oncomplete = () => res(out instanceof IDBRequest ? out.result : out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); };
+const tx = async (store, mode, fn, retry = true) => {
+  try { return await tx1(store, mode, fn); } catch (e) {
+    // iOS closes IndexedDB connections while the app sits in the background: reconnect once
+    if (retry && /InvalidState|UnknownError|connection/i.test((e && (e.name + ' ' + e.message)) || '')) { dbp = null; return tx(store, mode, fn, false); }
+    throw e;
+  }
+};
+const tx1 = async (store, mode, fn) => { const d = await (dbp ||= idb()); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); let out; Promise.resolve(fn(s)).then((v) => { out = v; }); t.oncomplete = () => res(out instanceof IDBRequest ? out.result : out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); };
 const get = (store, k) => tx(store, 'readonly', (s) => s.get(k));
 const put = (store, k, v) => tx(store, 'readwrite', (s) => s.put(v, k));
 const del = (store, k) => tx(store, 'readwrite', (s) => s.delete(k));
@@ -30,7 +40,8 @@ export function createWebPlatform() {
     },
     on(fn) { listeners.add(fn); },
     emit(type, data) { listeners.forEach((f) => f(type, data)); },
-    async loadDB() { try { const v = await get('kv', 'library'); return v ? JSON.parse(v) : null; } catch { return null; } },
+    // Missing = first run (null). Anything else throws, so the app never saves an empty library over a real one.
+    async loadDB() { const v = await get('kv', 'library'); return v ? JSON.parse(v) : null; },
     async saveDB(db) { await put('kv', 'library', JSON.stringify(db)); },
 
     // Opens the system picker. folder=true asks for a whole folder (tiers kept).
@@ -80,21 +91,27 @@ export function createWebPlatform() {
       if (t.url) return t.url;
       const f = await get('files', t.id); if (!f) return null;
       const u = URL.createObjectURL(f); urls.push(u);
-      while (urls.length > 3) URL.revokeObjectURL(urls.shift());
+      // free old URLs, but never one an audio element is still using (iOS re-reads it on seek/resume)
+      if (urls.length > 4) {
+        const live = new Set([...document.querySelectorAll('audio')].map((a) => a.src));
+        for (let i = 0; i < urls.length - 4;) { if (live.has(urls[i])) i++; else URL.revokeObjectURL(urls.splice(i, 1)[0]); }
+      }
       return u;
     },
     releaseAudio() {},
     async deleteTrackFile(t) { await del('files', t.id); try { await del('kv', 'lrc:' + t.id); } catch {} },
     async hasCover(key) { return !!(await get('covers', key + '_s')); },
-    async saveCover(key, big, small) { await put('covers', key, big); await put('covers', key + '_s', small); coverCache.delete(key); coverCache.delete(key + '_s'); },
+    async saveCover(key, big, small) { await put('covers', key, big); await put('covers', key + '_s', small); for (const k of [key, key + '_s']) { const v = coverCache.get(k); if (v) { coverCache.delete(k); setTimeout(() => v.then((u) => u && URL.revokeObjectURL(u)), 30000); } } },
     async deleteCover(key) { await del('covers', key); await del('covers', key + '_s'); },
     async coverURL(key, small) {
       if (!key) return null;
       if (/^(https?|data|blob):/.test(key)) return key;
       const k = key + (small ? '_s' : '');
-      if (coverCache.has(k)) return coverCache.get(k);
+      if (coverCache.has(k)) { const v = coverCache.get(k); coverCache.delete(k); coverCache.set(k, v); return v; } // most recent last
       const prom = get('covers', k).then((b) => (b ? URL.createObjectURL(b) : null));
       coverCache.set(k, prom);
+      // keep memory flat on big libraries: forget the least recently used covers
+      while (coverCache.size > 600) { const [ok, ov] = coverCache.entries().next().value; coverCache.delete(ok); setTimeout(() => ov.then((u) => u && URL.revokeObjectURL(u)), 30000); }
       return prom;
     },
     coverURLSync(key) { return /^(https?|data|blob):/.test(key || '') ? key : null; },
@@ -103,6 +120,12 @@ export function createWebPlatform() {
     openURL(u) { window.open(u, '_blank', 'noopener'); },
     async storageInfo() { try { return await navigator.storage.estimate(); } catch { return null; } },
     async writeClipboard(t) { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } },
+    // ---- videos (kept apart from songs, in their own store) ----
+    saveVideoFile(id, blob) { return put('videos', id, blob); },
+    getVideoFile(id) { return get('videos', id); },
+    async deleteVideoFile(id) { await del('videos', id); try { await del('videos', 'sub:' + id); } catch {} },
+    saveVideoSub(id, vtt) { return put('videos', 'sub:' + id, vtt); },
+    async getVideoSub(id) { return (await get('videos', 'sub:' + id)) || null; },
     win: null
   };
   return p;

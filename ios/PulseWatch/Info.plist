@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Pulse</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!-- Single-target watch app (Xcode 14+ style), paired with the iPhone app. -->
+	<key>WKApplication</key>
+	<true/>
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>$(PULSE_BUNDLE_ID)</string>
+	<!-- Songs only reach the watch from the iPhone app, so the watch app is installed
+	     alongside it (synced playlists still play when the phone is out of range). -->
+	<key>WKRunsIndependentlyOfCompanionApp</key>
+	<false/>
+
+	<!-- Offline playback of synced songs to Bluetooth headphones / watch speaker. -->
+	<key>WKBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+
+	<key>PulseAppGroup</key>
+	<string>$(PULSE_APP_GROUP)</string>
+</dict>
+</plist>

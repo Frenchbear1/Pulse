@@ -30,6 +30,10 @@ export function fmtLong(s) {
 export function fmtBytes(n) { if (!n) return '0 B'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; const i = Math.floor(Math.log(n) / Math.log(1024)); return (n / 1024 ** i).toFixed(i ? 1 : 0) + ' ' + u[i]; }
 export const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 export const sortKey = (s) => norm(s).replace(/^(the|a|an)\s+/, '');
+// Fast, natural ("Track 2" before "Track 10") text compare for big sorts; sort keys are cached
+const COLL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }); const SKC = new Map();
+const skc = (s) => { s = String(s ?? ''); let k = SKC.get(s); if (k === undefined) { if (SKC.size > 200000) SKC.clear(); k = sortKey(s); SKC.set(s, k); } return k; };
+export const cmpText = (a, b) => COLL.compare(skc(a), skc(b));
 export function h(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 
 // Run async tasks with limited concurrency

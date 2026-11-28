@@ -6,6 +6,7 @@ import { albumKeyOf, primaryArtist } from './library.js';
 import { trackMenu, albumKey, treeEl, rerenderTrees, createMenu, importMusic, addFolder, libSortMenu } from './views.js';
 import * as NP from './np.js';
 import { autoFill } from './spotify.js';
+import { practicePanel, practiceKeys } from './practice.js';
 
 const isDesktop = !!window.PULSE_DESKTOP;
 const isCompanion = isDesktop && new URLSearchParams(location.search).has('mini');
@@ -34,6 +35,7 @@ async function boot() {
   updateBar(); updateState(); updateModes(); updateVolume();
   if (app.S.panelOpen !== false && !app.isMobile) NP.openPanel(app.S.panel || 'info');
   requestAnimationFrame(() => document.body.classList.remove('booting'));
+  if (lib.readOnly) setTimeout(() => toast("Couldn't read your library, so nothing will be saved this session (your data is untouched). Restart Pulse to try again.", 9000), 600);
 
   // desktop: background rescan + folder watching
   if (isDesktop) {
@@ -197,6 +199,7 @@ function wireShell() {
   $('#bMore').onclick = (e) => menu([
     { label: 'Equalizer & sound', icon: 'eq', action: NP.soundPanel },
     { label: 'Sleep timer', icon: 'moon', action: () => NP.sleepMenu({ el: $('#bMore'), up: true, right: true }) },
+    { label: player.loop ? 'Practice (looping)' : 'Practice: loop & slow down', icon: 'loop', action: practicePanel },
     { label: `Speed: ${app.S.speed.toFixed(2)}×`, icon: 'speed', sub: () => [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((s) => ({ label: s + '×', checked: app.S.speed === s, action: () => { app.S.speed = s; player.applySpeed(); app.saveS(); } })) },
     { label: `Crossfade: ${app.S.crossfade ? app.S.crossfade + 's' : 'Off'}`, icon: 'wave', sub: () => [0, 2, 4, 6, 8, 12].map((s) => ({ label: s ? s + ' seconds' : 'Off', checked: app.S.crossfade === s, action: () => { app.S.crossfade = s; app.saveS(); if (s && !player.engineOn) toast('Crossfade needs the audio engine (Settings)'); } })) },
     '-', { label: 'Song info', icon: 'info', action: () => NP.openPanel('info') }
@@ -214,7 +217,7 @@ function wireShell() {
   // player events
   player.on((e) => {
     if (e === 'time') updateTime();
-    else if (e === 'track') { prioritizeCovers(); updateBar(); NP.onTrackChange(); rerenderTreesSoon(); saveSessionSoon(); setTraySoon(); }
+    else if (e === 'track') { $('#seek').classList.remove('has-loop'); prioritizeCovers(); updateBar(); NP.onTrackChange(); rerenderTreesSoon(); saveSessionSoon(); setTraySoon(); }
     else if (e === 'state') { updateState(); NP.updateNP(); NP.updateMini(); setTraySoon(); if (!player.playing) saveSession(); }
     else if (e === 'mode') updateModes();
     else if (e === 'volume') updateVolume();
@@ -222,6 +225,8 @@ function wireShell() {
     else if (e === 'settings') app.saveS();
     else if (e === 'played') { const src = player.source; if (src?.type === 'node') { for (const n of lib.nodePath(src.id)) { n.lastPlayed = Date.now(); n.plays = (n.plays || 0) + 1; } lib.save(); } }
     else if (e === 'error') toast("Couldn't play that file — skipping");
+    else if (e === 'errorstop') toast("Several songs in a row couldn't be played, so Pulse stopped. Their files may have moved — try Settings → Rescan.", 6000);
+    else if (e === 'loop') { const L = player.loop; const sk = $('#seek'); sk.classList.toggle('has-loop', !!L); if (L && player.duration) { sk.style.setProperty('--la', L.a / player.duration); sk.style.setProperty('--lb', L.b / player.duration); } }
     else if (e === 'sleepDone') toast('Sleep timer: paused playback');
   });
   const rerenderTreesSoon = debounce(rerenderTrees, 300);
@@ -233,6 +238,7 @@ function wireShell() {
     if (e === 'cover') { patchCover(d); return; }
     if (e === 'index' && d?.quiet) return;
     // never redraw what you're looking at because of background work; an empty page is the one exception
+    if (e === 'index' && !player.track) updateBar();
     if (e === 'index') { if (!lib.scanning) autoFill(); if (['home', 'songs', 'albums', 'artists', 'folders', 'library', 'search', 'genre', 'liked'].includes(app.view)) { if (emptyBefore() && !lib.scanning) quietRefresh(); else pendingRefresh = true; } }
   });
 
@@ -262,6 +268,7 @@ function wireShell() {
     if (ctrl && k === 'b') { e.preventDefault(); $('#btnSide').click(); return; }
     if (e.altKey && k === 'ArrowLeft') { back(); return; } if (e.altKey && k === 'ArrowRight') { fwd(); return; }
     if (typing || ctrl || e.altKey) return;
+    if (practiceKeys(e)) { e.preventDefault(); return; }
     switch (k) {
       case ' ': e.preventDefault(); player.toggle(); break;
       case 'ArrowRight': e.preventDefault(); e.shiftKey ? player.next() : player.seekBy(5); break;
@@ -277,7 +284,8 @@ function wireShell() {
       case 'p': case 'P': NP.togglePanel(); break;
       case 'f': case 'F': NP.isNPOpen() ? NP.closeNP() : NP.openNP(); break;
       case '/': e.preventDefault(); $('#searchInput').focus(); break;
-      case 'MediaPlayPause': player.toggle(); break; case 'MediaTrackNext': player.next(); break; case 'MediaTrackPrevious': player.prev(); break;
+      // with a song loaded the media keys arrive through Media Session; handling them here too would toggle twice
+      case 'MediaPlayPause': if (!msActive()) player.toggle(); break; case 'MediaTrackNext': if (!msActive()) player.next(); break; case 'MediaTrackPrevious': if (!msActive()) player.prev(); break;
     }
   });
   // mouse back/forward buttons
@@ -357,6 +365,7 @@ const pill = window.__pulsePill = {
 };
 // A folder called "Liked Songs" (or Liked / Favorites)? Offer to heart everything in it, optionally kept in sync.
 const LIKED_RE = /^(liked|liked songs|my liked songs|favou?rites|loved|loved tracks)$/i;
+const msActive = () => 'mediaSession' in navigator && !!navigator.mediaSession.metadata;
 let likedAsking = false;
 async function checkLikedFolders() {
   if (likedAsking || !lib.idx.folders) return;
@@ -374,10 +383,11 @@ async function checkLikedFolders() {
         <div class="opt"><div class="l"><b>Keep in sync</b><small>Songs added to this folder later get liked automatically</small></div><div class="r"><div class="tog on" id="lkSync"></div></div></div>
         <div class="row"><button class="pill" id="lkNo">Not now</button><button class="pill solid" id="lkYes">${ico('heart-f')}Like ${ids.length.toLocaleString()} songs</button></div>`);
       const tg = m.querySelector('#lkSync'); tg.onclick = () => tg.classList.toggle('on');
-      m.querySelector('#lkNo').onclick = () => { closeLayer(); res('no'); };
-      m.querySelector('#lkYes').onclick = () => { const sync = tg.classList.contains('on'); closeLayer(); res(sync ? 'sync' : 'once'); };
+      m._onClose = () => res(null); // dismissed: ask again another time
+      m.querySelector('#lkNo').onclick = () => { res('no'); closeLayer(); };
+      m.querySelector('#lkYes').onclick = () => { const sync = tg.classList.contains('on'); res(sync ? 'sync' : 'once'); closeLayer(); };
     });
-    likedAsking = false; S.likedFolders[f.key] = choice; app.saveS();
+    likedAsking = false; if (!choice) break; S.likedFolders[f.key] = choice; app.saveS();
     if (choice !== 'no') { let c = 0; for (const id of ids) if (!lib.db.liked[id]) { const t = lib.track(id); lib.db.liked[id] = t?.mtime || t?.added || Date.now(); c++; } changed += c; toast(`Added ${c.toLocaleString()} songs to Liked Songs`); }
     break; // one question at a time
   }

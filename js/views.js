@@ -1,12 +1,20 @@
 // All page views + the virtualized track list + track/playlist actions.
 import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS, VERSION, checkForUpdate, haptic, SWIPE_ACTIONS } from './core.js';
-import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce } from './util.js';
+import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce, cmpText } from './util.js';
 import { EQ_PRESETS } from './player.js';
-import { albumKeyOf, primaryArtist } from './library.js';
+import { albumKeyOf, primaryArtist, ARTIST_SEP_SRC } from './library.js';
 
 const R = app.renderers;
 import { renderListen, homeSoundsRow } from './listen.js';
+import { renderStats, mixesRow, mixByKey, mixCover } from './smart.js';
+import { renderVideos } from './video.js';
 R.listen = renderListen;
+R.videos = renderVideos;
+R.stats = renderStats;
+R.mix = ({ key }) => {
+  const m = mixByKey(key); if (!m) return h('<div class="page"><div class="empty"><h3>This mix has refreshed</h3><p>Mixes update every day. Check Home for today\'s picks.</p></div></div>');
+  return listPage({ title: m.name, ids: m.ids, source: { type: 'mix', id: m.key, label: m.name }, hero: heroEl({ kind: 'Made for you', title: m.name, art: mixCover(m), desc: m.desc, stats: `${plural(m.ids.length, 'song')} • ${fmtLong(sumDur(m.ids))} • refreshes daily`, color: `hsl(${m.hue} 55% 35%)` }) });
+};
 const T = (id) => lib.track(id);
 const sumDur = (ids) => ids.reduce((a, i) => a + (T(i)?.duration || 0), 0);
 const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
@@ -63,8 +71,13 @@ export function trackList(ids, o = {}) {
   player.on(offPlayer);
   const offLib = (e, d) => { if (e === 'liked') { for (const [i, el] of rows) if (ids[i] === d) { const b = el.querySelector('.lk'); setLikeBtn(b, lib.isLiked(d)); } } };
   lib.on(offLib);
+  // positions in the playlist itself (the list shown may be sorted or filtered)
+  const srcIdx = (i) => (o.srcIndex ? o.srcIndex[i] : i);
+  let dead = false;
+  const destroy = () => { if (dead) return; dead = true; scroller.removeEventListener('scroll', onScroll); removeEventListener('resize', onScroll); player.listeners.delete(offPlayer); lib.listeners.delete(offLib); };
+  wrap.destroy = destroy; // lets a page rebuild its list (filter, sort) without leaving the old one listening
   const prevCleanup = app.cleanup;
-  app.cleanup = () => { prevCleanup?.(); scroller.removeEventListener('scroll', onScroll); removeEventListener('resize', onScroll); player.listeners.delete(offPlayer); lib.listeners.delete(offLib); };
+  app.cleanup = () => { prevCleanup?.(); destroy(); };
   requestAnimationFrame(paint); setTimeout(paint, 60);
 
   const idxOf = (e) => { const r = e.target.closest('.trow'); return r ? +r.dataset.i : -1; };
@@ -83,7 +96,7 @@ export function trackList(ids, o = {}) {
     const i = idxOf(e); if (i < 0) return;
     const t = e.target;
     if (t.closest('.lk')) { const id = ids[i]; lib.like(id); setLikeBtn(t.closest('.lk'), lib.isLiked(id)); if (lib.isLiked(id)) burst(t.closest('.lk')); return; }
-    if (t.closest('.mo')) { if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { el: t.closest('.mo'), right: true }, { playlist: o.playlistId, indices: sel.size > 1 ? [...sel] : [i] }); return; }
+    if (t.closest('.mo')) { if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { el: t.closest('.mo'), right: true }, { playlist: o.playlistId, indices: (sel.size > 1 ? [...sel] : [i]).map(srcIdx) }); return; }
     if (t.closest('.pl')) { play(i); return; }
     const art = t.closest('[data-artist]'); if (art) { go('artist', { key: art.dataset.artist }); return; }
     const al = t.closest('[data-album]'); if (al) { go('album', { key: al.dataset.album }); return; }
@@ -91,8 +104,8 @@ export function trackList(ids, o = {}) {
     setSel(i, e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one');
   });
   v.addEventListener('dblclick', (e) => { const i = idxOf(e); if (i >= 0 && !e.target.closest('button,a')) play(i); });
-  v.addEventListener('contextmenu', (e) => { const i = idxOf(e); if (i < 0) return; e.preventDefault(); if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { x: e.clientX, y: e.clientY }, { playlist: o.playlistId, indices: sel.size > 1 ? [...sel] : [i] }); });
-  longPress(v, (e) => { const i = idxOf(e); if (i >= 0) trackMenu([ids[i]], { x: 0, y: 0 }, { playlist: o.playlistId, indices: [i] }); });
+  v.addEventListener('contextmenu', (e) => { const i = idxOf(e); if (i < 0) return; e.preventDefault(); if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { x: e.clientX, y: e.clientY }, { playlist: o.playlistId, indices: (sel.size > 1 ? [...sel] : [i]).map(srcIdx) }); });
+  longPress(v, (e) => { const i = idxOf(e); if (i >= 0) trackMenu([ids[i]], { x: 0, y: 0 }, { playlist: o.playlistId, indices: [srcIdx(i)] }); });
   rowSwipes(v, (row) => ids[+row.dataset.i]);
   // drag & drop: to sidebar playlists, and reorder within playlists
   v.addEventListener('dragstart', (e) => {
@@ -153,7 +166,7 @@ function rowSwipes(v, idFor) {
   v.addEventListener('touchcancel', () => reset(true));
 }
 function artistLinks(t) {
-  const names = String(t.artist || 'Unknown Artist').split(/\s*(;|,| feat\.? | ft\.? | & )\s*/i);
+  const names = String(t.artist || 'Unknown Artist').split(new RegExp(ARTIST_SEP_SRC, 'i'));
   return names.map((n, i) => (i % 2 ? esc(n.trim() === ';' ? ',' : n) + ' ' : `<a data-artist="${esc(norm(n))}">${esc(n)}</a>`)).join('');
 }
 export function albumKey(t) { return albumKeyOf(t); }
@@ -281,6 +294,7 @@ R.home = () => {
   el.appendChild(h(`<div class="tiles">${tiles.join('')}</div>`));
   const section = (title, html, more) => { if (!html) return; el.appendChild(h(`<div class="sec"><h2>${title}</h2>${more ? `<a data-go="${more}">Show all</a>` : ''}</div>`)); el.appendChild(h(`<div class="grid row">${html}</div>`)); };
   if (recAlbums.length) section('Jump back in', recAlbums.slice(0, 14).map(albumCard).join(''));
+  const mixRow = mixesRow(); if (mixRow) el.appendChild(mixRow);
   const playlists = lib.db.rootNodes.map((id) => lib.node(id)).filter(Boolean);
   if (playlists.length) section('Your library', playlists.slice(0, 14).map(nodeCard).join(''), 'library');
   const recentAdded = [...lib.idx.albums.values()].map((al) => [Math.max(...al.tracks.map((i) => T(i).added || 0)), al]).sort((a, b) => b[0] - a[0]).slice(0, 14).map((x) => x[1]);
@@ -304,10 +318,10 @@ R.home = () => {
 // SONGS
 // =====================================================================
 const sorters = {
-  title: (a, b) => sortKey(a.title).localeCompare(sortKey(b.title)),
-  artist: (a, b) => sortKey(a.artist).localeCompare(sortKey(b.artist)) || sortKey(a.album).localeCompare(sortKey(b.album)) || (a.track - b.track),
-  album: (a, b) => sortKey(a.album).localeCompare(sortKey(b.album)) || (a.disc - b.disc) || (a.track - b.track),
-  added: (a, b) => a.added - b.added || sortKey(a.title).localeCompare(sortKey(b.title)),
+  title: (a, b) => cmpText(a.title, b.title),
+  artist: (a, b) => cmpText(a.artist, b.artist) || cmpText(a.album, b.album) || (a.track - b.track),
+  album: (a, b) => cmpText(a.album, b.album) || (a.disc - b.disc) || (a.track - b.track),
+  added: (a, b) => a.added - b.added || cmpText(a.title, b.title),
   duration: (a, b) => a.duration - b.duration,
   plays: (a, b) => (lib.db.plays[a.id] || 0) - (lib.db.plays[b.id] || 0),
   year: (a, b) => (a.year || 0) - (b.year || 0),
@@ -337,8 +351,12 @@ function listPage({ title, ids, source, sortKeyName, kind, hero, extraActions, p
   const draw = () => {
     let list = sort ? sortIds(ids, sort) : ids;
     if (q) { const toks = norm(q).split(/\s+/); list = list.filter((id) => toks.every((t) => lib.idx.search.get(id)?.includes(t))); }
+    // map each shown row back to its position in the playlist (duplicates allowed)
+    let srcIndex = null;
+    if (playlistId && (q || sort)) { const at = new Map(); ids.forEach((id, i) => { if (!at.has(id)) at.set(id, []); at.get(id).push(i); }); srcIndex = list.map((id) => at.get(id)?.shift() ?? -1); }
+    holder.firstChild?.destroy?.();
     holder.innerHTML = '';
-    holder.appendChild(trackList(list, { source: { ...source, sorted: true }, sort, onSort: sort ? (k) => { if (!k) return; sort = { k, d: sort.k === k ? -sort.d : 1 }; S[sortKeyName] = sort; app.saveS(); draw(); } : null, playlistId, reorder: reorder && !q, added: !!addedAt || sort?.k === 'added', addedAt, numbers, album, emptyHTML }));
+    holder.appendChild(trackList(list, { source: { ...source, sorted: true }, sort, onSort: sort ? (k) => { if (!k) return; sort = { k, d: sort.k === k ? -sort.d : 1 }; S[sortKeyName] = sort; app.saveS(); draw(); } : null, playlistId, reorder: reorder && !q, srcIndex, added: !!addedAt || sort?.k === 'added', addedAt, numbers, album, emptyHTML }));
   };
   const grow = acts.querySelector('.grow');
   grow.after(filterBox((v) => { q = v; draw(); }));
@@ -365,28 +383,34 @@ function gridPage(title, items, card, sortOpts, onSortKey) {
   const el = h(`<div class="page"><div class="page-h"><h1>${esc(title)}</h1></div></div>`);
   const head = el.querySelector('.page-h');
   let q = ''; const grid = h('<div class="grid"></div>');
-  const draw = () => { const list = q ? items.filter((x) => norm(x.name + ' ' + (x.artist || '')).includes(norm(q))) : items; grid.innerHTML = list.slice(0, 3000).map(card).join(''); hydrate(grid); };
+  // draw in chunks as you scroll: big libraries open instantly and nothing is cut off
+  const CH = 120; let list = items, shown = 0; const more = h('<div class="grid-more" aria-hidden="true"></div>');
+  const io = 'IntersectionObserver' in window ? new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) drawMore(); }, { root: $('#view'), rootMargin: '900px' }) : null;
+  const drawMore = () => { if (shown >= list.length) return; const html = list.slice(shown, shown + CH).map((x, i) => card(x, shown ? 0 : i)).join(''); shown += CH; grid.insertAdjacentHTML('beforeend', html); hydrate(grid); if (!io && shown < list.length) setTimeout(drawMore, 30); };
+  const draw = () => { const nq = norm(q); list = nq ? items.filter((x) => norm(x.name + ' ' + (x.artist || '')).includes(nq)) : items; grid.innerHTML = ''; shown = 0; drawMore(); if (!list.length && q) grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><p>Nothing matches that filter.</p></div>'; };
+  if (io) { io.observe(more); const pc = app.cleanup; app.cleanup = () => { pc?.(); io.disconnect(); }; }
   head.appendChild(filterBox((v) => { q = v; draw(); }));
   if (sortOpts) { const b = h(`<button class="pill">${ico('sort')}<span>${sortOpts.find((s) => s[0] === app.S[onSortKey])?.[1] || 'Sort'}</span></button>`); b.onclick = () => menu(sortOpts.map(([k, l]) => ({ label: l, checked: app.S[onSortKey] === k, action: () => { app.S[onSortKey] = k; app.saveS(); refresh(); } })), { el: b, right: true }); head.appendChild(b); }
   const sz = h(`<button class="ib" title="Card size">${ico('grid')}</button>`); sz.onclick = () => { const sizes = [132, 172, 220]; app.S.gridSize = sizes[(sizes.indexOf(app.S.gridSize) + 1) % sizes.length]; app.saveS(); applyTheme(); }; head.appendChild(sz);
-  el.appendChild(grid); draw(); wireCards(el);
+  el.appendChild(grid); el.appendChild(more); draw(); wireCards(el);
   return el;
 }
 R.albums = () => {
   const k = app.S.albumSort; let list = [...lib.idx.albums.values()];
-  const f = { name: (a, b) => sortKey(a.name).localeCompare(sortKey(b.name)), artist: (a, b) => sortKey(a.artist).localeCompare(sortKey(b.artist)) || b.year - a.year, year: (a, b) => (b.year || 0) - (a.year || 0), added: (a, b) => Math.max(...b.tracks.map((i) => T(i).added)) - Math.max(...a.tracks.map((i) => T(i).added)) }[k] || ((a, b) => sortKey(a.name).localeCompare(sortKey(b.name)));
+  const addedAt = new Map(); const addedOf = (al) => { let v = addedAt.get(al); if (v === undefined) { v = 0; for (const i of al.tracks) v = Math.max(v, T(i)?.added || 0); addedAt.set(al, v); } return v; };
+  const f = { name: (a, b) => cmpText(a.name, b.name), artist: (a, b) => cmpText(a.artist, b.artist) || b.year - a.year, year: (a, b) => (b.year || 0) - (a.year || 0), added: (a, b) => addedOf(b) - addedOf(a) }[k] || ((a, b) => cmpText(a.name, b.name));
   list.sort(f);
   return gridPage('Albums', list, albumCard, [['name', 'Name'], ['artist', 'Artist'], ['year', 'Year'], ['added', 'Recently added']], 'albumSort');
 };
-R.artists = () => gridPage('Artists', [...lib.idx.artists.values()].sort((a, b) => sortKey(a.name).localeCompare(sortKey(b.name))), artistCard);
+R.artists = () => gridPage('Artists', [...lib.idx.artists.values()].sort((a, b) => cmpText(a.name, b.name)), artistCard);
 R.album = ({ key }) => {
   const al = lib.idx.albums.get(key); if (!al) return h('<div class="page"><div class="empty"><h3>Album not found</h3></div></div>');
   const color = lib.db.covers[al.cover]?.color;
   const discs = new Set(al.tracks.map((i) => T(i).disc || 1)).size;
-  const hero = heroEl({ kind: 'Album', title: al.name, art: al.cover ? coverImg(al.cover, false) : ico('album'), color, stats: `<a data-artist="${esc(norm(al.artist))}"><b>${esc(al.artist)}</b></a>${al.year ? ' • ' + al.year : ''} • ${plural(al.tracks.length, 'song')}${discs > 1 ? ` (${discs} discs)` : ''}, ${fmtLong(sumDur(al.tracks))}` });
+  const hero = heroEl({ kind: 'Album', title: al.name, art: al.cover ? coverImg(al.cover, false) : ico('album'), color, stats: `${lib.idx.artists.has(norm(al.artist)) ? `<a data-artist="${esc(norm(al.artist))}"><b>${esc(al.artist)}</b></a>` : `<b>${esc(al.artist)}</b>`}${al.year ? ' • ' + al.year : ''} • ${plural(al.tracks.length, 'song')}${discs > 1 ? ` (${discs} discs)` : ''}, ${fmtLong(sumDur(al.tracks))}` });
   hero.addEventListener('click', (e) => { const a = e.target.closest('[data-artist]'); if (a) go('artist', { key: a.dataset.artist }); });
   const el = listPage({ title: al.name, ids: al.tracks, source: { type: 'album', id: key, label: al.name }, hero, numbers: 'track', album: false });
-  const more = h(`<button class="ib" title="More">${ico('more')}</button>`); more.onclick = () => menu([{ label: 'Add to queue', icon: 'plus', action: () => player.addToQueue(al.tracks) }, { label: 'Add to playlist', icon: 'playlist', sub: () => playlistPicker(al.tracks) }, { label: 'Go to artist', icon: 'artist', action: () => go('artist', { key: norm(al.artist) }) }], { el: more });
+  const more = h(`<button class="ib" title="More">${ico('more')}</button>`); more.onclick = () => menu([{ label: 'Add to queue', icon: 'plus', action: () => player.addToQueue(al.tracks) }, { label: 'Add to playlist', icon: 'playlist', sub: () => playlistPicker(al.tracks) }, lib.idx.artists.has(norm(al.artist)) && { label: 'Go to artist', icon: 'artist', action: () => go('artist', { key: norm(al.artist) }) }], { el: more });
   el.querySelector('.actions [data-a=shuffle]').after(more);
   // more by artist
   const ar = lib.idx.artists.get(norm(al.artist));
@@ -434,13 +458,13 @@ R.folders = ({ key = '' }) => {
     acts.querySelector('[data-mirror]').onclick = () => { const n = lib.mirrorFolder(key); toast(`Saved "${f.name}" to Your Library`); go('node', { id: n.id }); };
   }
   if (f.children.size) {
-    const kids = [...f.children.values()].sort((a, b) => sortKey(a.name).localeCompare(sortKey(b.name)));
+    const kids = [...f.children.values()].sort((a, b) => cmpText(a.name, b.name));
     const p = h(`<div class="page" style="padding-top:${key ? 0 : 8}px;padding-bottom:0">${key ? `<div class="sec" style="margin-top:4px"><h2>Folders</h2></div>` : ''}<div class="grid">${kids.map((c, i) => { const n = lib.folderAllTracks(c).length; return cardHTML({ cover: c.cover ? coverImg(c.cover, false) : `<div class="gen-cover" style="--gc:var(--s2)">${ico('folder')}</div>`, title: c.name, sub: `${c.children.size ? plural(c.children.size, 'folder') + ' • ' : ''}${plural(n, 'song')}`, data: `data-fold="${esc(c.key)}"`, i }); }).join('')}</div></div>`);
     wireCards(p); el.appendChild(p);
   }
   if (f.tracks.length) {
     if (f.children.size) el.appendChild(h('<div class="page" style="padding-bottom:0"><div class="sec" style="margin-top:6px"><h2>Songs in this folder</h2></div></div>'));
-    el.appendChild(trackList(sortIds(f.tracks, { k: 'track', d: 1 }).sort((a, b) => (T(a).disc - T(b).disc) || (T(a).track - T(b).track) || sortKey(T(a).name).localeCompare(sortKey(T(b).name))), { source: { type: 'folder', id: key, label: f.name } }));
+    el.appendChild(trackList(sortIds(f.tracks, { k: 'track', d: 1 }).sort((a, b) => (T(a).disc - T(b).disc) || (T(a).track - T(b).track) || cmpText(T(a).name, T(b).name)), { source: { type: 'folder', id: key, label: f.name } }));
   }
   el.addEventListener('click', (e) => { const c = e.target.closest('.crumbs [data-fold]'); if (c) go('folders', { key: c.dataset.fold }); });
   return el;
@@ -452,7 +476,7 @@ R.folders = ({ key = '' }) => {
 R.library = ({ tab = 'all' }) => {
   const el = h(`<div class="page"><div class="page-h"><h1>Your Library</h1><button class="ib" data-new title="Create">${ico('plus')}</button></div></div>`);
   el.querySelector('[data-new]').onclick = (e) => createMenu({ el: e.currentTarget, right: true });
-  const tabs = [['all', 'Playlists'], ['songs', 'Songs'], ['albums', 'Albums'], ['artists', 'Artists'], ['folders', 'Folders'], ['liked', 'Liked']];
+  const tabs = [['all', 'Playlists'], ['songs', 'Songs'], ['albums', 'Albums'], ['artists', 'Artists'], ['folders', 'Folders'], ['liked', 'Liked'], ['videos', 'Videos'], ['stats', 'Stats']];
   const chips = h(`<div class="chips lib-tabs">${tabs.map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</a>`).join('')}</div>`);
   chips.addEventListener('click', (e) => { const c = e.target.closest('[data-t]'); if (!c) return; const t = c.dataset.t; if (t === 'all') return; go(t); });
   el.appendChild(chips);
@@ -490,7 +514,7 @@ let libQuery = '';
 export const LIB_VIEWS = [['all', 'Everything'], ['playlists', 'Playlists only'], ['folders', 'Folders only'], ['pinned', 'Pinned']];
 function sortNodes(ids) {
   const k = app.S.libSort || 'recent'; const N = (id) => lib.node(id);
-  const by = { recent: (a, b) => (N(b).lastPlayed || N(b).updated || N(b).created || 0) - (N(a).lastPlayed || N(a).updated || N(a).created || 0), added: (a, b) => (N(b).created || 0) - (N(a).created || 0), alpha: (a, b) => sortKey(N(a).name).localeCompare(sortKey(N(b).name)), plays: (a, b) => (N(b).plays || 0) - (N(a).plays || 0) }[k];
+  const by = { recent: (a, b) => (N(b).lastPlayed || N(b).updated || N(b).created || 0) - (N(a).lastPlayed || N(a).updated || N(a).created || 0), added: (a, b) => (N(b).created || 0) - (N(a).created || 0), alpha: (a, b) => cmpText(N(a).name, N(b).name), plays: (a, b) => (N(b).plays || 0) - (N(a).plays || 0) }[k];
   const list = ids.filter((id) => N(id));
   const pinned = list.filter((id) => N(id).pinned).sort((a, b) => (N(a).pinned || 0) - (N(b).pinned || 0));
   const rest = list.filter((id) => !N(id).pinned); if (by) rest.sort(by);
@@ -810,6 +834,8 @@ R.settings = () => {
     opt('Crossfade', 'Blend the end of one song into the next', `<input type="range" min="0" max="12" step="1" value="${S.crossfade}" data-range="crossfade"><span class="val">${S.crossfade ? S.crossfade + 's' : 'Off'}</span>`) +
     opt('Smooth pause & play', 'Quick fade instead of a hard stop', tog('fadePause', S.fadePause)) +
     opt('Volume leveler', 'Evens out loud and quiet songs', tog('leveler', S.leveler)) +
+    opt('Smart shuffle', 'Leans toward songs you like and keeps the same artist from playing back to back', tog('smartShuffle', S.smartShuffle)) +
+    opt('Resume long recordings', 'Audiobooks, mixes and podcasts over 20 minutes pick up where you left off', tog('resumeLong', S.resumeLong)) +
     opt('Equalizer & sound', 'EQ, presets, speed, pitch', `<button class="pill" data-sound>${ico('eq')}Open</button>`);
   if (!app.isMobile) pb += opt('Now playing view', 'What clicking the cover in the player bar opens. The ⤢ button is always full screen.', segOf('npView', [['panel', 'Side panel'], ['full', 'Full screen']]));
   if (!app.isDesktop) pb += opt('Audio effects engine', 'Needed for EQ, crossfade and the visualizer. On iPhone it can stop background playback when locked — leave on Auto unless you want effects.', `<div class="seg" data-seg="engine">${[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button data-v="${k}" class="${S.engine === k ? 'on' : ''}">${l}</button>`).join('')}</div>`);

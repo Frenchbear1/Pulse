@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Shared container for the app, widgets and Live Activity: library.json, artwork
+	     thumbnails and the now-playing snapshot live here. Register the same group id in
+	     the developer portal (Identifiers > App Groups) and keep PULSE_APP_GROUP in sync. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.app.pulse.player</string>
+	</array>
+
+	<!-- CarPlay audio app. Apple must GRANT this entitlement before it works on a real car
+	     or can ship: request it at developer.apple.com/contact/carplay (choose "Audio").
+	     Until it is granted, provisioning fails for DEVICE builds that include this key, so
+	     comment it out when running on your own iPhone. Simulator builds aren't provisioned
+	     the same way, so you can keep it there and test with the iOS Simulator's
+	     I/O > External Displays > CarPlay window. -->
+	<key>com.apple.developer.carplay-audio</key>
+	<true/>
+</dict>
+</plist>
