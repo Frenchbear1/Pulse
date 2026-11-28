@@ -150,7 +150,7 @@ export const refreshSoon = debounce(() => { if (!$('.menu, .modal, .sheet')) ref
 let refreshPending = false;
 export function markNav() {
   const v = app.view, p = app.params || {};
-  $$('[data-go]').forEach((a) => a.classList.toggle('on', a.dataset.go === v || (a.dataset.go === 'library' && app.isMobile && ['albums', 'artists', 'songs', 'folders', 'node', 'liked', 'recent', 'album', 'artist'].includes(v))));
+  $$('[data-go]').forEach((a) => a.classList.toggle('on', a.dataset.go === v || (a.dataset.go === 'library' && app.isMobile && ['albums', 'artists', 'songs', 'folders', 'node', 'liked', 'recent', 'album', 'artist', 'videos', 'stats'].includes(v))));
   $$('.tnode').forEach((n) => n.classList.toggle('on', v === 'node' && p.id === n.dataset.id));
   $('#navBack').disabled = app.hi <= 0; $('#navFwd').disabled = app.hi >= app.hist.length - 1;
 }

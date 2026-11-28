@@ -7,7 +7,9 @@ import { albumKeyOf, primaryArtist, ARTIST_SEP_SRC } from './library.js';
 const R = app.renderers;
 import { renderListen, homeSoundsRow } from './listen.js';
 import { renderStats, mixesRow, mixByKey, mixCover } from './smart.js';
+import { renderVideos } from './video.js';
 R.listen = renderListen;
+R.videos = renderVideos;
 R.stats = renderStats;
 R.mix = ({ key }) => {
   const m = mixByKey(key); if (!m) return h('<div class="page"><div class="empty"><h3>This mix has refreshed</h3><p>Mixes update every day. Check Home for today\'s picks.</p></div></div>');
@@ -474,7 +476,7 @@ R.folders = ({ key = '' }) => {
 R.library = ({ tab = 'all' }) => {
   const el = h(`<div class="page"><div class="page-h"><h1>Your Library</h1><button class="ib" data-new title="Create">${ico('plus')}</button></div></div>`);
   el.querySelector('[data-new]').onclick = (e) => createMenu({ el: e.currentTarget, right: true });
-  const tabs = [['all', 'Playlists'], ['songs', 'Songs'], ['albums', 'Albums'], ['artists', 'Artists'], ['folders', 'Folders'], ['liked', 'Liked']];
+  const tabs = [['all', 'Playlists'], ['songs', 'Songs'], ['albums', 'Albums'], ['artists', 'Artists'], ['folders', 'Folders'], ['liked', 'Liked'], ['videos', 'Videos'], ['stats', 'Stats']];
   const chips = h(`<div class="chips lib-tabs">${tabs.map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</a>`).join('')}</div>`);
   chips.addEventListener('click', (e) => { const c = e.target.closest('[data-t]'); if (!c) return; const t = c.dataset.t; if (t === 'all') return; go(t); });
   el.appendChild(chips);

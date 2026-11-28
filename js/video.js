@@ -256,8 +256,10 @@ async function srcFor(v) {
 }
 async function makePoster(v) {
   if (isDesk() && !v.stored && !v.size) { const r = rootOf(v); const st = r && (await P().videoStat(v, r)); if (st) v.size = st.size; }
-  const src = await srcFor(v); if (!src) { v.missing = true; return; }
+  const src = await srcFor(v); if (!src) { v.missing = true; save(); updateCard(v); return; }
   const vid = document.createElement('video'); vid.muted = true; vid.playsInline = true; vid.setAttribute('playsinline', ''); vid.preload = 'auto';
+  vid.style.cssText = 'position:fixed;left:-10px;top:-10px;width:2px;height:2px;opacity:0;pointer-events:none'; // in the page so phones decode a frame
+  document.body.appendChild(vid);
   try {
     vid.src = src.url;
     await once(vid, 'loadedmetadata');
@@ -272,7 +274,7 @@ async function makePoster(v) {
     const [big, small] = await Promise.all([mk(640, 0.82), mk(360, 0.76)]);
     if (!big || !small) throw new Error('could not encode poster');
     const key = 'v_' + v.id; await P().saveCover(key, big, small); v.poster = key;
-  } finally { vid.removeAttribute('src'); try { vid.load(); } catch {} src.revoke(); save(); updateCard(v); }
+  } finally { vid.removeAttribute('src'); try { vid.load(); } catch {} vid.remove(); src.revoke(); save(); updateCard(v); }
 }
 
 // ---------- page ----------
@@ -281,9 +283,12 @@ const redraw = () => pageEl?._draw?.();
 let rdT = 0; const redrawSoon = () => { clearTimeout(rdT); rdT = setTimeout(redraw, 300); };
 function busy(t) { busyText = t; const s = pageEl?.querySelector('.v-status'); if (s) { s.classList.toggle('show', !!t); if (t) s.querySelector('span:last-child').textContent = t; } }
 const leftOf = (v) => v.duration ? Math.max(0, v.duration - (v.pos || 0)) : 0;
+// the last few % (credits) count as finished: 3 s for a short clip, up to 2 min for a film
+const endZone = (d) => Math.min(Math.max(d * 0.05, 3), 120);
 function cardHTML(v, i, cont) {
   const prog = v.duration && v.pos > 5 && !v.watched ? clamp(v.pos / v.duration, 0.02, 1) : 0;
-  const sub = cont ? `${Math.max(1, Math.round(leftOf(v) / 60))} min left` : v.missing ? 'File not found' : v.watched ? 'Watched' : [v.duration ? '' : null, v.size ? fmtBytes(v.size) : '', v.w ? (v.h >= 2000 ? '4K' : v.h >= 1000 ? 'HD' : v.h ? v.h + 'p' : '') : ''].filter(Boolean).join(' • ') || (v.stored ? 'On this device' : '');
+  const q = v.h >= 2000 ? '4K' : v.h >= 700 ? 'HD' : v.h ? v.h + 'p' : '';
+  const sub = cont ? (leftOf(v) < 60 ? `${Math.round(leftOf(v))} sec left` : `${Math.round(leftOf(v) / 60)} min left`) : v.missing ? 'File not found' : v.watched ? 'Watched' : [q, v.size ? fmtBytes(v.size) : ''].filter(Boolean).join(' • ') || (v.stored ? 'On this device' : (v.name.split('.').pop() || '').toUpperCase());
   return `<div class="card vcard${v.missing ? ' missing' : ''}" data-vid="${esc(v.id)}" style="--i:${Math.min(i, 24)}"><div class="cv vcv">${v.poster ? coverImg(v.poster, true) : `<div class="gen-cover vph">${ico('vfilm')}</div>`}${v.duration ? `<span class="vdur">${fmtTime(v.duration)}</span>` : ''}${v.watched ? `<span class="vseen" title="Watched">${ico('check')}</span>` : ''}${v.sub ? '<span class="vcc-b" title="Has subtitles">CC</span>' : ''}${prog ? `<i class="vprog" style="--p:${prog.toFixed(3)}"></i>` : ''}<button class="fab" data-play title="Play">${ico('play')}</button><button class="ib sm vmore" data-more title="More">${ico('more')}</button></div><b title="${esc(titleOf(v))}">${esc(titleOf(v))}</b><small>${esc(sub)}</small></div>`;
 }
 function updateCard(v) {
@@ -326,7 +331,7 @@ export function renderVideos(params = {}) {
     }
     const nq = norm(q).trim(); const list = nq ? all.filter((v) => norm(titleOf(v) + ' ' + groupLabel(v)).includes(nq)) : all;
     let html = '';
-    const cont = nq ? [] : all.filter((v) => v.pos > 5 && !v.watched && v.duration && leftOf(v) > 10).sort((a, b) => (b.last || 0) - (a.last || 0)).slice(0, 12);
+    const cont = nq ? [] : all.filter((v) => v.pos > 5 && !v.watched && v.duration && leftOf(v) > endZone(v.duration)).sort((a, b) => (b.last || 0) - (a.last || 0)).slice(0, 12);
     if (cont.length) html += `<div class="sec"><h2>Continue watching</h2></div><div class="grid row vgrid v-cont">${cont.map((v, i) => cardHTML(v, i, true)).join('')}</div>`;
     const groups = new Map(); for (const v of list) { const k = groupKey(v); if (!groups.has(k)) groups.set(k, { label: groupLabel(v), items: [] }); groups.get(k).items.push(v); }
     const gs = [...groups.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
@@ -423,8 +428,8 @@ function buildPlayer() {
     <div class="vp-top">
       <button class="vp-b" data-a="close" title="Close (Esc)">${ico('back')}</button>
       <div class="vp-title"><b></b><small></small></div>
-      <button class="vp-b vp-cc" data-a="subs" title="Subtitles (C)">${ico('vcc')}</button>
-      ${pipOK() ? `<button class="vp-b" data-a="pip" title="Picture in picture (I)">${ico('vpip')}</button>` : ''}
+      <button class="vp-b vp-cc vp-mob" data-a="subs" title="Subtitles">${ico('vcc')}</button>
+      ${pipOK() ? `<button class="vp-b vp-mob" data-a="pip" title="Picture in picture">${ico('vpip')}</button>` : ''}
       <button class="vp-b" data-a="more" title="More">${ico('more')}</button>
     </div>
     <div class="vp-mid">
@@ -433,7 +438,7 @@ function buildPlayer() {
       <button class="vp-b vp-big" data-a="fwd10" title="Forward 10 seconds (→)">${ico('vfwd10')}</button>
     </div>
     <div class="vp-resume hidden"><span></span><button data-a="restart">Start over</button></div>
-    <div class="vp-next hidden"><div class="vp-next-art"></div><div class="vp-next-t"><small>Up next</small><b></b></div><button class="pill solid" data-a="nextnow">${ico('play')}Play</button><button class="pill" data-a="nextcancel">Cancel</button><i class="vp-next-bar"></i></div>
+    <div class="vp-next hidden"><div class="vp-next-art"></div><div class="vp-next-t"><small>Up next</small><b></b></div><div class="vp-next-btns"><button class="pill solid" data-a="nextnow">${ico('play')}Play now</button><button class="pill" data-a="nextcancel">Cancel</button></div><i class="vp-next-bar"></i></div>
     <div class="vp-bar">
       <div class="seek-row vp-seek"><span class="vp-cur">0:00</span><div class="slider seek"><div class="buf"></div><div class="fill"></div><div class="knob"></div><div class="tip"></div></div><span class="vp-dur">0:00</span></div>
       <div class="vp-ctl">
@@ -443,8 +448,8 @@ function buildPlayer() {
         ${canVolume ? `<div class="vp-vol"><button class="vp-b" data-a="mute" title="Mute (M)">${ico('vol')}</button><div class="slider"><div class="fill"></div><div class="knob"></div></div></div>` : ''}
         <span class="grow"></span>
         <button class="vp-pill" data-a="speed" title="Speed (&lt; &gt;)">1×</button>
-        <button class="vp-b vp-cc" data-a="subs" title="Subtitles (C)">${ico('vcc')}</button>
-        ${pipOK() ? `<button class="vp-b" data-a="pip" title="Picture in picture (I)">${ico('vpip')}</button>` : ''}
+        <button class="vp-b vp-cc vp-desk" data-a="subs" title="Subtitles (C)">${ico('vcc')}</button>
+        ${pipOK() ? `<button class="vp-b vp-desk" data-a="pip" title="Picture in picture (I)">${ico('vpip')}</button>` : ''}
         <button class="vp-b" data-a="fs" title="Full screen (F)">${ico('expand')}</button>
       </div>
     </div>
@@ -503,6 +508,7 @@ function buildPlayer() {
   el.addEventListener('contextmenu', (e) => { e.preventDefault(); });
   // desktop: drag the window by the top bar's empty space
   if (isDesk() && P().win?.dragFrom) el.querySelector('.vp-top').addEventListener('pointerdown', (e) => { if (e.button === 0 && !e.target.closest('button') && !fsEl() && !P().win._max) P().win.dragFrom(e); });
+  updateVol();
   requestAnimationFrame(() => el.classList.add('on'));
   return s;
 }
@@ -528,9 +534,10 @@ function onMeta() {
   if (isFinite(d) && d > 0 && Math.abs((v.duration || 0) - d) > 0.5) { v.duration = d; save(); }
   if (s.video.videoWidth) { v.w = s.video.videoWidth; v.h = s.video.videoHeight; }
   s.el.querySelector('.vp-dur').textContent = fmtTime(d);
-  if (!s.opts.fromStart && v.pos > 5 && !v.watched && (!d || v.pos < d - 10)) {
-    s.video.currentTime = v.pos; s.resumeAt = v.pos; s.resumeShown = true;
-    const r = s.el.querySelector('.vp-resume'); r.querySelector('span').textContent = `Resumed at ${fmtTime(v.pos)}`; r.classList.remove('hidden');
+  const from = s.resumeFrom || 0; s.ready = true;
+  if (from > 5 && (!d || d - from > endZone(d))) {
+    s.video.currentTime = from; s.resumeAt = from; s.lastPos = from; s.resumeShown = true;
+    const r = s.el.querySelector('.vp-resume'); r.querySelector('span').textContent = `Resumed at ${fmtTime(from)}`; r.classList.remove('hidden');
     clearTimeout(s.resumeT); s.resumeT = setTimeout(hideResume, 7000);
   }
   if (s.speed !== 1) s.video.playbackRate = s.speed;
@@ -538,12 +545,12 @@ function onMeta() {
 }
 function hideResume() { if (!S) return; S.resumeShown = false; S.el.querySelector('.vp-resume').classList.add('hidden'); }
 function saveProgress(force) {
-  const s = S; if (!s?.v || !V()[s.v.id]) return; const v = s.v, t = s.video.currentTime || 0, d = (isFinite(s.video.duration) && s.video.duration) || v.duration || 0;
+  const s = S; if (!s?.v || !s.ready || !V()[s.v.id]) return; const v = s.v, t = s.video.currentTime || 0, d = (isFinite(s.video.duration) && s.video.duration) || v.duration || 0;
   if (!force && Math.abs(t - s.lastPos) < 1) return;
   s.lastSave = Date.now(); s.lastPos = t;
-  if (d && t > 0 && d - t < Math.max(10, d * 0.04)) { v.watched = true; v.pos = 0; }
+  if (d && t > 0 && d - t < endZone(d)) { v.watched = true; v.pos = 0; }
   else if (t > 5) { v.pos = Math.round(t * 10) / 10; v.watched = false; v.last = Date.now(); }
-  else if (force && t <= 5 && s.started) v.pos = 0;
+  else if (force && t <= 5) v.pos = 0;
   save();
 }
 function onEnded() {
@@ -601,7 +608,7 @@ function shortcuts() {
 function attachSubs(vtt, show) {
   const s = S; if (!s) return;
   s.video.querySelectorAll('track').forEach((t) => t.remove()); if (s.subURL) { URL.revokeObjectURL(s.subURL); s.subURL = null; }
-  if (!vtt) { s.el.classList.remove('has-subs'); return; }
+  if (!vtt) { s.el.classList.remove('has-subs'); s.el.querySelectorAll('.vp-cc').forEach((b) => b.classList.remove('on')); return; }
   s.subURL = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }));
   const tr = document.createElement('track'); tr.kind = 'subtitles'; tr.label = 'Subtitles'; tr.srclang = 'en'; tr.src = s.subURL; tr.default = true;
   s.video.appendChild(tr); s.el.classList.add('has-subs');
@@ -676,8 +683,8 @@ function onKey(e) {
     case 'End': if (isFinite(v.duration)) v.currentTime = Math.max(0, v.duration - 0.5); break;
     case 'Escape': if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); } else closeVideo(); break;
     default:
-      if (/^[0-9]$/.test(k) && isFinite(v.duration)) v.currentTime = v.duration * (+k / 10);
-      else if (k.length === 1 || k === 'Tab') handled = k !== 'Tab' ? true : false; else handled = false;
+      if (/^[0-9]$/.test(k)) { if (isFinite(v.duration)) v.currentTime = v.duration * (+k / 10); }
+      else handled = k.length === 1; // swallow other letters so music shortcuts don't fire underneath
   }
   if (handled) { e.preventDefault(); e.stopImmediatePropagation(); poke(); }
 }
@@ -707,7 +714,8 @@ async function loadVideo(v, opts) {
   const s = S; cancelNext(); hideResume(); hideMsg();
   if (s.src) { s.src.revoke(); s.src = null; }
   attachSubs(null);
-  s.v = v; s.opts = opts || {}; s.lastPos = 0; s.started = false;
+  s.v = v; s.opts = opts || {}; s.lastPos = 0; s.ready = false;
+  s.resumeFrom = !s.opts.fromStart && v.pos > 5 && !v.watched ? v.pos : 0;
   s.el.querySelector('.vp-title b').textContent = titleOf(v);
   s.el.querySelector('.vp-title small').textContent = groupLabel(v);
   s.el.querySelector('.vp-dur').textContent = v.duration ? fmtTime(v.duration) : '0:00';
@@ -720,7 +728,7 @@ async function loadVideo(v, opts) {
   try { src = await srcFor(v); } catch (e) { console.warn(e); }
   if (S !== s || s.v !== v) { src?.revoke(); return; }
   if (!src) { s.el.classList.remove('buffering'); showMsg('Video not found', v.stored ? 'The stored copy is missing. Remove it and import it again.' : 'The file may have been moved or renamed. Try Rescan on the Videos page.'); return; }
-  s.src = src; s.video.src = src.url; s.started = true;
+  s.src = src; s.video.src = src.url;
   v.last = Date.now(); v.missing = false;
   s.video.play().catch((e) => { if (e.name === 'NotAllowedError') { setPP(false); poke(true); } else if (e.name !== 'AbortError') console.warn(e); });
   setMediaSession(v);
