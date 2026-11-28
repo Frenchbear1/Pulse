@@ -4,6 +4,21 @@
 
 Windows may show "Windows protected your PC" because the app isn't code-signed — click **More info → Run anyway**.
 
+## What's new in 1.5.0
+- **Radio & Sounds** (sidebar chip, phone tab, and a row on Home)
+  - **Endless sounds made live on your device** — no internet, never repeats: Endless Lo-fi (generative beats, chords, bass, vinyl crackle), Rain, Thunderstorm, Ocean, Creek, Fireplace, Ambient Drift, Brown/Pink/White noise, and binaural Focus / Relax / Meditate / Sleep
+  - **Free live radio** from radio-browser.info: Lo-fi, Christian, Worship, Jazz, Classical, Chill, Study and more, plus station search
+  - Both play through the normal player: bar, mini player, media keys, volume, Devices
+- **Online lyrics** from LRCLIB (free, synced karaoke-style) when a song has none
+- **Transcribe lyrics with on-device AI (beta)** when nothing exists online — Whisper runs locally after a one-time model download
+- **Song & artist info** in Now playing: artist photo + bio (Wikipedia), genre/year/album (iTunes), one click to fill in what your files are missing
+- **Missing covers found online** (iTunes, Cover Art Archive) — automatically for the playing song, or all at once from Settings → Album covers
+- Settings → Online to switch any of these off; no accounts or keys, results cached on your device
+- **Spotify import:** "Use whole folders" puts every song from the matching music folder into the playlist; "Group like my music folders" recreates your folder layout; Back/Next stay pinned
+- Maximize now resizes the window itself, so the whole maximized area responds
+- Fast-changing numbers (import counts) stay readable; the clock keeps the full morph
+- Fixed: with shuffle off, double-clicking a song started the list from the first song
+
 ## What's new in 1.4.1
 - **Title bar fixed for good:** dragging is now handled inside Pulse (no more handing the mouse to Windows' move loop, which could leave the bar unresponsive), the missing drag/close/quit functions are restored, and a small background helper keeps the window's click-fix in place if anything ever undoes it
 - **True number morph:** digits are drawn as vector strokes and smoothly bend into the next number — no flipping or fading

@@ -22,7 +22,8 @@ export const player = {
   listeners: new Set(), sleep: null, fading: false, countedPlay: false, preloaded: null,
   on(fn) { this.listeners.add(fn); },
   emit(e, d) { this.listeners.forEach((f) => f(e, d)); },
-  get el() { return this.els[this.active]; },
+  get el() { return this.liveMode ? this.live : this.els[this.active]; },
+  liveMode: false, live: null,
   get other() { return this.els[1 - this.active]; },
   get track() { return this.current ? lib.track(this.current) : null; },
   get time() { return this.el?.currentTime || 0; },
@@ -43,6 +44,14 @@ export const player = {
       a.addEventListener('error', () => { if (i === this.active && this.current) { this.emit('error', this.track); setTimeout(() => this.next(true), 600); } });
       this.els.push(a);
     }
+    // radio / generated sound: a separate element outside the effects graph (streams rarely allow processing)
+    const L = this.live = new Audio(); L.preload = 'none'; L.setAttribute('playsinline', '');
+    L.addEventListener('play', () => this.liveMode && this.setPlaying(true));
+    L.addEventListener('timeupdate', () => this.liveMode && this.emit('time'));
+    L.addEventListener('pause', () => this.liveMode && this.setPlaying(false));
+    L.addEventListener('waiting', () => this.liveMode && this.emit('buffer', true));
+    L.addEventListener('playing', () => this.liveMode && this.emit('buffer', false));
+    L.addEventListener('error', () => { if (this.liveMode && L.src) { this.emit('error', this.track); this.setPlaying(false); } });
     this.applyVolume(); this.applySpeed();
     const want = settings.engine === 'on' || (settings.engine !== 'off' && !isIOS);
     if (want) this.enableEngine();
@@ -66,6 +75,7 @@ export const player = {
     id = id || 'default'; const sid = id === 'default' ? '' : id;
     if (this.engineOn && this.ctx?.setSinkId) await this.ctx.setSinkId(sid);
     else if (this.canPickOutput()) await Promise.all(this.els.map((a) => a.setSinkId(sid)));
+    if (this.live?.setSinkId) await this.live.setSinkId(sid).catch(() => {});
     else throw new Error('unsupported');
     this.settings.sink = id; this.settings.sinkLabel = label || ''; this.save?.(); this.emit('output');
   },
@@ -110,6 +120,7 @@ export const player = {
     const v = this.settings.muted ? 0 : Math.pow(clamp(this.settings.volume ?? 0.8, 0, 1), 1.6);
     if (this.engineOn) this.nodes.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
     else this.els.forEach((a) => (a.volume = v));
+    if (this.live) this.live.volume = v;
     this.emit('volume');
   },
   applySpeed() { for (const a of this.els) { a.playbackRate = this.settings.speed || 1; a.preservesPitch = a.webkitPreservesPitch = this.settings.keepPitch !== false; } },
@@ -125,7 +136,7 @@ export const player = {
     if (this.shuffle && opts.randomStart && startIndex === 0) startIndex = Math.floor(Math.random() * ids.length);
     this.buildOrder(startIndex);
     this.pos = this.shuffle ? 0 : startIndex;
-    this.load(this.ctxList[this.order[0]], true);
+    this.load(this.ctxList[this.order[this.pos]], true);
     this.emit('queue'); this.emit('mode');
   },
   buildOrder(startIdx) {
@@ -187,6 +198,8 @@ export const player = {
   async load(id, autoplay, startAt = 0) {
     const t = lib.track(id); if (!t) return;
     this.cancelFade();
+    if (t.live) return this.loadLive(t, autoplay);
+    if (this.liveMode) { lib.track(this.current)?.stop?.(); this.live.pause(); this.live.srcObject = null; this.live.removeAttribute('src'); this.liveMode = false; }
     this.current = id; this.countedPlay = false; this.loading = true;
     this.emit('track', t);
     let url, el = this.el;
@@ -209,15 +222,26 @@ export const player = {
     this.updateMediaSession();
     this.preloaded = null;
   },
+  async loadLive(t, autoplay) {
+    const prev = lib.track(this.current); if (prev?.live && prev !== t) prev.stop?.();
+    this.els.forEach((a) => a.pause());
+    this.liveMode = true; this.current = t.id; this.countedPlay = true; this.emit('track', t);
+    const L = this.live; L.srcObject = null; L.removeAttribute('src');
+    if (t.stream) L.srcObject = await t.stream(); else L.src = t.url;
+    this.applyVolume(); this.updateMediaSession();
+    if (autoplay) this.play(); else this.emit('time');
+  },
   async play() {
     if (!this.current) { const all = Object.keys(lib.db.tracks); if (all.length) this.playList(all, 0, { type: 'songs', label: 'All songs' }, { randomStart: true }); return; }
     if (this.ctx && this.ctx.state !== 'running') this.ctx.resume();
+    if (this.liveMode) { const t = this.track; t?.resume?.(); try { await this.live.play(); } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); } return; }
     try {
       if (this.engineOn && this.settings.fadePause !== false) { const g = this.nodes.gains[this.active].gain; g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(0.0001, this.ctx.currentTime); g.exponentialRampToValueAtTime(1, this.ctx.currentTime + 0.18); }
       await this.el.play();
     } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); }
   },
   pause() {
+    if (this.liveMode) { this.live.pause(); this.track?.suspend?.(); return; }
     if (this.engineOn && this.settings.fadePause !== false && !this.el.paused) {
       const g = this.nodes.gains[this.active].gain; const el = this.el;
       g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(g.value || 1, this.ctx.currentTime); g.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 0.16);
@@ -225,7 +249,7 @@ export const player = {
     } else this.el.pause();
   },
   toggle() { this.playing ? this.pause() : this.play(); },
-  seek(t) { const d = this.duration; if (!d && !t) { this.el.currentTime = 0; return; } this.el.currentTime = clamp(t, 0, Math.max(0, d - 0.25)); this.emit('time'); this.updatePosition(); },
+  seek(t) { if (this.liveMode) return; const d = this.duration; if (!d && !t) { this.el.currentTime = 0; return; } this.el.currentTime = clamp(t, 0, Math.max(0, d - 0.25)); this.emit('time'); this.updatePosition(); },
   seekBy(dt) { this.seek(this.time + dt); },
   setPlaying(v) { if (this.playing === v) return; this.playing = v; this.emit('state', v); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = v ? 'playing' : 'paused'; },
 

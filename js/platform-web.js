@@ -77,6 +77,7 @@ export function createWebPlatform() {
     async readFolderArt(t) { const pd = pending.get(t.id); if (!pd?.art) return null; return { data: new Uint8Array(await pd.art.arrayBuffer()), mime: pd.art.type }; },
     async readLrc(t) { if (!t.lrc) return null; return (await get('kv', 'lrc:' + t.id)) || null; },
     async audioURL(t) {
+      if (t.url) return t.url;
       const f = await get('files', t.id); if (!f) return null;
       const u = URL.createObjectURL(f); urls.push(u);
       while (urls.length > 3) URL.revokeObjectURL(urls.shift());
@@ -89,13 +90,14 @@ export function createWebPlatform() {
     async deleteCover(key) { await del('covers', key); await del('covers', key + '_s'); },
     async coverURL(key, small) {
       if (!key) return null;
+      if (/^(https?|data|blob):/.test(key)) return key;
       const k = key + (small ? '_s' : '');
       if (coverCache.has(k)) return coverCache.get(k);
       const prom = get('covers', k).then((b) => (b ? URL.createObjectURL(b) : null));
       coverCache.set(k, prom);
       return prom;
     },
-    coverURLSync() { return null; },
+    coverURLSync(key) { return /^(https?|data|blob):/.test(key || '') ? key : null; },
     async findExports() { return []; },
     async stat() { return null; },
     openURL(u) { window.open(u, '_blank', 'noopener'); },

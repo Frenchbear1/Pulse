@@ -169,7 +169,7 @@ public static class PulseWin {
     },
     async stat(t) { const root = p.roots.get(t.root); if (!root) throw new Error('root not mounted'); const st = await N().filesystem.getStats(root.path + '/' + t.rel); return { size: st.size, mtime: st.modifiedAt }; },
     trackURL(t) { return location.origin + '/m_' + t.root + '/' + t.rel.split('/').map(encodeURIComponent).join('/'); },
-    audioURL(t) { return Promise.resolve(p.trackURL(t)); },
+    audioURL(t) { return Promise.resolve(t.url || p.trackURL(t)); },
     releaseAudio() {},
     async reader(t) {
       try { return await p.httpReader(t); }
@@ -235,10 +235,11 @@ public static class PulseWin {
     blobURLs: new Map(),
     coverURL(key, small) {
       if (!key) return Promise.resolve(null);
+      if (/^(https?|data|blob):/.test(key)) return Promise.resolve(key);
       if (p.idbKeys.has(key)) { const k = key + (small ? '_s' : ''); if (!p.blobURLs.has(k)) p.blobURLs.set(k, idbGet(k).then((b) => (b ? URL.createObjectURL(b) : null))); return p.blobURLs.get(k); }
       return Promise.resolve(location.origin + '/covers/' + key + (small ? '_s' : '') + '.jpg');
     },
-    coverURLSync(key, small) { return key && !p.idbKeys.has(key) ? location.origin + '/covers/' + key + (small ? '_s' : '') + '.jpg' : null; },
+    coverURLSync(key, small) { if (/^(https?|data|blob):/.test(key || '')) return key; return key && !p.idbKeys.has(key) ? location.origin + '/covers/' + key + (small ? '_s' : '') + '.jpg' : null; },
 
     // ---- window ----
     win: {
@@ -247,8 +248,27 @@ public static class PulseWin {
       // Uses SetWindowPos instead of SW_MAXIMIZE, which misroutes clicks on borderless transparent windows.
       _max: false,
       async toggleMax() { return p.win._max ? p.win.restore() : p.win.maximize(); },
-      async maximize() { if (p.win._max) return; await N().window.setFullScreen(); p.win._max = true; p.emit('maxchange', true); },
-      async restore() { if (!p.win._max) return; await N().window.exitFullScreen(); p.win._max = false; p.emit('maxchange', false); },
+      // Fill the monitor with a plain resize + move (the same path as dragging the edges), not Neutralino's
+      // setFullScreen: that swaps window styles and can leave Windows hit-testing the old, smaller rectangle.
+      _saved: null,
+      async maximize() {
+        if (p.win._max) return;
+        try { p.win._saved = { pos: await N().window.getPosition(), size: await N().window.getSize() }; } catch {}
+        const sc = screen, dpr = devicePixelRatio || 1;
+        const L = sc.availLeft || 0, T = sc.availTop || 0;
+        // setSize units differ by Neutralino setting/version: try physical pixels, then correct from what we measure
+        await N().window.setSize({ width: Math.round(sc.width * dpr), height: Math.round(sc.height * dpr), resizable: false });
+        await new Promise((r) => setTimeout(r, 80));
+        if (innerWidth > sc.width + 4) await N().window.setSize({ width: Math.round(sc.width), height: Math.round(sc.height), resizable: false });
+        await N().window.move(Math.round(L * dpr), Math.round(T * dpr));
+        p.win._max = true; p.emit('maxchange', true);
+        setTimeout(() => fixFrame(false), 250);
+      },
+      async restore() {
+        if (!p.win._max) return; const s = p.win._saved; p.win._max = false;
+        if (s) { await N().window.setSize({ width: Math.round(s.size.width), height: Math.round(s.size.height), resizable: false }); await N().window.move(s.pos.x, s.pos.y); }
+        p.emit('maxchange', false); setTimeout(() => fixFrame(false), 250);
+      },
       close: () => p.emit('close'),
       exit: () => N().app.exit(),
       setSize: (w, h) => N().window.setSize({ width: Math.round(w), height: Math.round(h), resizable: false }),

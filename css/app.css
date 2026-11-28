@@ -615,7 +615,7 @@ body:not(.booting) #boot { opacity: 0; visibility: hidden; }
   #tabs, #mbar { --panel-a: .5; }
   body:not(.light) #tabs, body:not(.light) #mbar { background: rgba(var(--bg-rgb), .62); -webkit-backdrop-filter: blur(max(var(--blur), 24px)) saturate(1.8); backdrop-filter: blur(max(var(--blur), 24px)) saturate(1.8); }
   body.light #tabs, body.light #mbar { background: rgba(255,255,255,.72); }
-  #tabs { position: fixed; left: 14px; right: 14px; bottom: calc(10px + var(--safe-b)); height: var(--dock); z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; padding: 0 6px; border-radius: 26px; }
+  #tabs { position: fixed; left: 14px; right: 14px; bottom: calc(10px + var(--safe-b)); height: var(--dock); z-index: 20; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; padding: 0 6px; border-radius: 26px; }
   #tabs a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 58px; border-radius: 20px; font-size: 10.5px; font-weight: 650; color: var(--tx3); transition: color .2s, background .25s, transform .2s var(--spring); }
   #tabs a svg { width: 24px; height: 24px; }
   #tabs a.on { color: var(--tx); background: rgba(var(--acc-rgb), .16); }
@@ -1025,3 +1025,30 @@ body.companion { background: transparent; }
 .ovs:hover .ovs-th, .ovs.drag .ovs-th { background: rgba(160,160,170,.7); }
 body.light .ovs-th { background: rgba(0,0,0,.25); }
 #panel > .ovs { width: 7px; flex: none; animation: none !important; }
+
+/* Spotify wizard: footer stays pinned, list area fits the window */
+.sp-grid { height: min(56vh, 560px, calc(100vh - 360px)) !important; min-height: 220px; }
+.sp-wiz .sp-body > .row:last-child { position: sticky; bottom: -22px; z-index: 5; margin: 14px -24px -22px; padding: 14px 24px 18px; background: rgba(var(--bg-rgb), .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 -1px 0 var(--line); border-radius: 0 0 calc(var(--r) + 4px) calc(var(--r) + 4px); }
+.sp-whole { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-bottom: 12px; border-radius: 14px; background: var(--s1); box-shadow: inset 0 0 0 1px var(--line); }
+.sp-whole.on { background: rgba(var(--acc-rgb), .12); box-shadow: inset 0 0 0 1px rgba(var(--acc-rgb), .35); }
+.sp-whole > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .sp-whole small { color: var(--tx2); font-size: 12.5px; line-height: 1.4; }
+.sp-whole .pill { flex: none; }
+body.is-live #seek, body.is-live #npSeekBar, body.is-live #miniSeek { pointer-events: none; opacity: .35; }
+
+/* Radio & Sounds */
+.sec-note { color: var(--tx3); font-size: 12.5px; margin-left: 10px; flex: 1; }
+.snd-grid, .st-grid { --card: 150px; }
+.card.snd .cv img, .card.st .cv img { width: 100%; height: 100%; object-fit: cover; }
+.card.snd small, .card.st small { display: block; color: var(--tx3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.st-cv { background: linear-gradient(135deg, #232336, #141420); display: grid; place-items: center; }
+.st-cv img { position: absolute; inset: 14%; width: 72% !important; height: 72% !important; object-fit: contain !important; border-radius: 12px; opacity: 0; transition: opacity .3s; } .st-cv img.ok { opacity: 1; }
+.st-ph svg { width: 40px; height: 40px; color: rgba(var(--acc-rgb), .8); } .st-cv img.ok + .st-ph { display: none; }
+.radio-bar { margin: 2px 0 10px; } .radio-q { max-width: 420px; }
+.set-note { color: var(--tx3); font-size: 12.5px; line-height: 1.5; margin: 10px 2px 8px; }
+
+.sm-pill { height: 30px; font-size: 12.5px; margin: 10px 6px 2px; }
+.npv-link { display: inline-flex; align-items: center; gap: 6px; margin: 8px 6px 0; color: var(--tx3); font-size: 12.5px; cursor: pointer; } .npv-link:hover { color: var(--tx); } .npv-link svg { width: 14px; height: 14px; }
+.npv-artist { overflow: hidden; padding-top: 0; } .npv-artist p { margin: 0 6px; color: var(--tx2); font-size: 13px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.npv-aimg { height: 170px; margin: 0 -10px 12px; background-size: cover; background-position: center 25%; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.npv-artist .npv-ct { padding-top: 12px; }
+.ai-st { display: block; margin-top: 10px; color: var(--tx3); font-size: 12.5px; min-height: 1em; }

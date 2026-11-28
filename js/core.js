@@ -14,7 +14,7 @@ export const DEFAULTS = {
   npView: 'panel',
   gest: { right: 'queue', left: 'like', miniSwipe: true, miniUp: true, npDown: true, artSwipe: true, artDouble: true, haptics: true }
 };
-export const VERSION = '1.4.1';
+export const VERSION = '1.5.0';
 export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
@@ -336,7 +336,10 @@ export function flip(el, text) {
     return;
   }
   el.setAttribute('aria-label', text);
-  const instant = app.S?.anim === 'off' || document.hidden; const dur = app.S?.anim === 'low' ? 380 : 620;
+  // fit the morph to how fast this number changes: full morph for clocks, quicker for fast counters, instant when it's a blur
+  const t = performance.now(), gap = t - (el._last || 0); el._last = t;
+  const base = app.S?.anim === 'low' ? 380 : 620;
+  const instant = app.S?.anim === 'off' || document.hidden || gap < 140; const dur = Math.min(base, gap * 0.75);
   [...text].forEach((ch, i) => {
     const c = el._cells[i]; if (!c || c._d === ch) return; c._d = ch;
     if (instant) { c._cur.set(DIGITS[+ch]); c._path.setAttribute('d', dgPath(c._cur)); morphing.delete(c); return; }

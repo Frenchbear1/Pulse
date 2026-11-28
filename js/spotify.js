@@ -166,7 +166,7 @@ export async function matchLists(lists, onProgress) {
   buildIndex(); const cache = new Map(); let done = 0; const total = lists.reduce((a, l) => a + l.items.length, 0);
   for (const l of lists) {
     l.res = [];
-    const folder = folderFor(l.name); l.folder = folder ? folder.name : null;
+    const folder = folderFor(l.name); l.folder = folder ? folder.name : null; l.folderKey = folder ? folder.key : null;
     const prefer = folder ? new Set(lib.folderAllTracks(folder)) : null;
     for (let i = 0; i < l.items.length; i++) {
       const it = l.items[i]; const key = (prefer ? l.name + '|' : '') + (it.uri || it.isrc || it.t + '|' + it.a + '|' + it.d);
@@ -189,6 +189,7 @@ function rebuildTracks(n) {
   n.tracks = [...sp.map.filter((id) => id && lib.track(id)), ...extras];
   sp.prevMapped = sp.map.filter(Boolean);
 }
+const sortKeyOf = (id) => (lib.track(id)?.title || '').toLowerCase();
 // Fill in what the files are missing (album, year, genre, label, ISRC) from Spotify's data
 function enrich(id, it) {
   const t = lib.track(id); if (!t) return 0; let n = 0;
@@ -206,18 +207,38 @@ export function createFromLists(lists, opt) {
   let parent = opt.parent; let enriched = 0;
   if (parent === '__new') parent = lib.createNode('folder', opt.folderName || 'Spotify').id;
   const made = [];
+  // "group like my folders": recreate the parent folders of each playlist's music folder inside Pulse
+  const groupCache = new Map();
+  const parentSegs = (l) => l.folderKey.split('/').filter(Boolean).slice(1, -1); // drop the music root and the playlist folder itself
+  const keyed = lists.filter((l) => l.include && l.folderKey).map(parentSegs);
+  let common = keyed.length ? keyed[0].length : 0; // folders every playlist shares (e.g. the folder you imported) aren't real groups
+  for (const a of keyed) { let i = 0; while (i < common && i < a.length && a[i] === keyed[0][i]) i++; common = i; }
+  const groupFor = (l) => {
+    if (!opt.mirror || !l.folderKey) return parent || null;
+    const segs = parentSegs(l).slice(common);
+    let at = parent || null, path = '';
+    for (const sname of segs) {
+      path += '/' + sname; if (groupCache.has(path)) { at = groupCache.get(path); continue; }
+      const ex = Object.values(lib.db.nodes).find((x) => x.type === 'folder' && x.name === sname && (x.parent || null) === at);
+      at = (ex || lib.createNode('folder', sname, at)).id; groupCache.set(path, at);
+    }
+    return at;
+  };
   for (const l of lists) {
     if (!l.include) continue;
+    const home = groupFor(l);
     const map = l.res.map((x) => x.use || null);
     if (opt.enrich) map.forEach((id, i) => { if (id) enriched += enrich(id, l.items[i]); });
     const addedAt = {}; map.forEach((id, i) => { if (id && l.items[i].added) addedAt[id] = l.items[i].added; });
     const spotify = { file: l.file, items: l.items.map(({ t, a, al, d, isrc, uri }) => ({ t, a, al, d, isrc, uri })), map, imported: Date.now(), sync: opt.sync };
     if (l.isLiked && opt.likedToLiked) { let c = 0; map.forEach((id, i) => { if (id && !lib.isLiked(id)) { lib.db.liked[id] = l.items[i].added || Date.now(); c++; } }); lib.save(); lib.emit('liked'); }
     if (l.isLiked && opt.likedToLiked && !opt.likedAlsoPlaylist) continue;
-    let n = Object.values(lib.db.nodes).find((x) => x.type === 'playlist' && x.name === l.name && (x.parent || null) === (parent || null));
+    let n = Object.values(lib.db.nodes).find((x) => x.type === 'playlist' && x.name === l.name && (x.parent || null) === (home || null));
     if (n && opt.dupes === 'replace') { n.spotify = spotify; n.tracks = []; rebuildTracks(n); n.addedAt = addedAt; }
     else if (n && opt.dupes === 'merge') { const have = new Set(n.tracks); n.spotify = spotify; for (const id of map) if (id && !have.has(id)) { n.tracks.push(id); have.add(id); } n.spotify.prevMapped = map.filter(Boolean); }
-    else { n = lib.createNode('playlist', l.name, parent || null, { spotify, addedAt, desc: `Imported from Spotify (${l.items.length} songs)` }); rebuildTracks(n); }
+    else { n = lib.createNode('playlist', l.name, home || null, { spotify, addedAt, desc: `Imported from Spotify (${l.items.length} songs)` }); rebuildTracks(n); }
+    // "whole folders": every song in the matching music folder goes in — Spotify's order first, the rest after
+    if (opt.wholeFolders && l.folderKey) { const f = lib.folderNode(l.folderKey); if (f) { const have = new Set(n.tracks); for (const id of lib.folderAllTracks(f).sort((a, b) => sortKeyOf(a).localeCompare(sortKeyOf(b)))) if (!have.has(id)) { n.tracks.push(id); have.add(id); } } }
     if (!n.addedAt) n.addedAt = addedAt;
     n.updated = Date.now(); made.push(n);
   }
@@ -349,8 +370,10 @@ export function openSpotifyImport() {
     if (W.step === 3) {
       const l = W.lists[W.sel];
       const tot = W.lists.filter((x) => x.include).reduce((a, x) => a + x.res.filter((r) => r.use).length, 0);
-      return `<div class="sp-grid">
-        <div class="sp-lists">${W.lists.map((x, i) => { const c = cnt(x); return `<div class="sp-li ${i === W.sel ? 'on' : ''}" data-sel="${i}"><div class="tog ${x.include ? 'on' : ''}" data-inc="${i}"></div><div class="tt"><b>${esc(x.name)}</b><small><span class="ok">${c.use}</span> / ${x.items.length} found${c.review ? ` • <span class="rv">${c.review} to check</span>` : ''}${x.folder ? ` • ${ico('folder').replace('<svg>', '<svg class="fold">')} ${esc(x.folder)}` : ''}</small></div><div class="sp-bar"><i style="width:${(c.use / x.items.length) * 100}%"></i></div></div>`; }).join('')}</div>
+      const withFolder = W.lists.filter((x) => x.folderKey).length;
+      const banner = withFolder ? `<div class="sp-whole ${W.whole ? 'on' : ''}"><div><b>${withFolder} of ${W.lists.length} playlists have a music folder with the same name</b><small>${W.whole ? 'Using whole folders: every song in those folders goes in the playlist, matched songs keep Spotify’s order.' : 'Song-by-song matching can miss files whose names or tags differ from Spotify. Skip that and just take the whole folder.'}</small></div><button class="pill ${W.whole ? '' : 'solid'}" data-whole>${W.whole ? 'Match song by song instead' : ico('folder') + 'Use whole folders'}</button></div>` : '';
+      return banner + `<div class="sp-grid">
+        <div class="sp-lists">${W.lists.map((x, i) => { const c = cnt(x); return `<div class="sp-li ${i === W.sel ? 'on' : ''}" data-sel="${i}"><div class="tog ${x.include ? 'on' : ''}" data-inc="${i}"></div><div class="tt"><b>${esc(x.name)}</b><small>${W.whole && x.folderKey ? `<span class="ok">whole folder</span> • ` : ""}<span class="ok">${c.use}</span> / ${x.items.length} found${c.review ? ` • <span class="rv">${c.review} to check</span>` : ''}${x.folder ? ` • ${ico('folder').replace('<svg>', '<svg class="fold">')} ${esc(x.folder)}` : ''}</small></div><div class="sp-bar"><i style="width:${(c.use / x.items.length) * 100}%"></i></div></div>`; }).join('')}</div>
         <div class="sp-detail"><div class="sp-dh"><input class="inp sp-name" value="${esc(l.name)}" title="Playlist name"><span>${l.items.length} songs on Spotify</span></div><div data-review></div></div>
       </div>
       <div class="row"><span style="flex:1;opacity:.7;font-size:13px;align-self:center">${W.lists.filter((x) => x.include).length} playlists • ${tot.toLocaleString()} songs will be added</span><button class="pill" data-back>${ico('back')}Back</button><button class="pill solid" data-next>Next ${ico('fwd')}</button></div>`;
@@ -360,12 +383,13 @@ export function openSpotifyImport() {
       const hasLiked = W.lists.some((x) => x.include && x.isLiked);
       return `<div class="sp-opts">
         <div class="opt"><div class="l"><b>Put the playlists in</b><small>Everything stays nested in your library — move them anytime</small></div><div class="r"><select class="inp" id="spParent" style="width:240px"><option value="__new">New folder “Spotify”</option><option value="">Top level of Your Library</option>${folders.map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join('')}</select></div></div>
+        ${W.lists.some((x) => x.include && x.folderKey) ? `<div class="opt"><div class="l"><b>Group playlists like my music folders</b><small>Spotify doesn’t export its playlist folders, so Pulse copies the folder layout your music is stored in (e.g. Worship › UP! Radio)</small></div><div class="r"><div class="tog on" id="spMirror"></div></div></div>` : ''}
         <div class="opt"><div class="l"><b>If a playlist with the same name exists</b></div><div class="r"><div class="seg" id="spDup"><button data-v="merge" class="on">Merge</button><button data-v="replace">Replace</button><button data-v="new">Keep both</button></div></div></div>
         <div class="opt"><div class="l"><b>Fill in missing song info</b><small>Album, year, genre and label from Spotify — only where your files are blank or just use the folder name</small></div><div class="r"><div class="tog on" id="spEnrich"></div></div></div>
         <div class="opt"><div class="l"><b>Keep in sync with your music folder</b><small>When a missing song shows up later, Pulse adds it in the right spot automatically</small></div><div class="r"><div class="tog on" id="spSync"></div></div></div>
         ${hasLiked ? `<div class="opt"><div class="l"><b>Liked Songs → Pulse Liked Songs</b><small>Heart the matched songs instead of making a separate playlist</small></div><div class="r"><div class="tog on" id="spLiked"></div></div></div>` : ''}
       </div>
-      <div class="sp-summary">${W.lists.filter((x) => x.include).map((x) => { const c = cnt(x); return `<div><b>${esc(x.name)}</b><span>${c.use} of ${x.items.length}</span></div>`; }).join('')}</div>
+      <div class="sp-summary">${W.lists.filter((x) => x.include).map((x) => { const c = cnt(x); return `<div><b>${esc(x.name)}</b><span>${W.whole && x.folderKey ? `whole folder (${lib.folderAllTracks(lib.folderNode(x.folderKey) || { tracks: [], children: new Map() }).length} songs)` : `${c.use} of ${x.items.length}`}</span></div>`; }).join('')}</div>
       <div class="row"><button class="pill" data-back>${ico('back')}Back</button><button class="pill solid" data-import>${ico('check')}Import playlists</button></div>`;
     }
     return '';
@@ -420,13 +444,14 @@ export function openSpotifyImport() {
         const s = e.target.closest('[data-sel]'); if (s) { W.sel = +s.dataset.sel; W.tab = null; render(); }
       });
       q('[data-next]').onclick = () => { if (!W.lists.some((x) => x.include)) { toast('Turn on at least one playlist'); return; } W.step = 4; render(); };
+      q('[data-whole]')?.addEventListener('click', () => { W.whole = !W.whole; render(); });
     }
     if (W.step === 4) {
       let dupes = 'merge';
       q('#spDup').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; dupes = b.dataset.v; $$('#spDup button', root).forEach((x) => x.classList.toggle('on', x === b)); };
-      for (const id of ['#spSync', '#spLiked', '#spEnrich']) q(id)?.addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
+      for (const id of ['#spSync', '#spLiked', '#spEnrich', '#spMirror']) q(id)?.addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
       q('[data-import]').onclick = () => {
-        const res = createFromLists(W.lists, { parent: q('#spParent').value, folderName: 'Spotify', dupes, sync: q('#spSync').classList.contains('on'), likedToLiked: !!q('#spLiked')?.classList.contains('on'), enrich: !!q('#spEnrich')?.classList.contains('on') });
+        const res = createFromLists(W.lists, { parent: q('#spParent').value, folderName: 'Spotify', dupes, sync: q('#spSync').classList.contains('on'), likedToLiked: !!q('#spLiked')?.classList.contains('on'), enrich: !!q('#spEnrich')?.classList.contains('on'), wholeFolders: !!W.whole, mirror: !!q('#spMirror')?.classList.contains('on') });
         stop(); closeLayer();
         const songs = res.made.reduce((a, n) => a + n.tracks.length, 0);
         toast(`Imported ${res.made.length} playlist${res.made.length === 1 ? '' : 's'} • ${songs.toLocaleString()} songs${res.enriched ? ` • filled in info for ${res.enriched.toLocaleString()}` : ''}`, 4500);

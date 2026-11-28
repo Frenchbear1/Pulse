@@ -5,6 +5,8 @@ import { EQ_PRESETS } from './player.js';
 import { albumKeyOf, primaryArtist } from './library.js';
 
 const R = app.renderers;
+import { renderListen, homeSoundsRow } from './listen.js';
+R.listen = renderListen;
 const T = (id) => lib.track(id);
 const sumDur = (ids) => ids.reduce((a, i) => a + (T(i)?.duration || 0), 0);
 const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
@@ -266,7 +268,7 @@ export async function importMusic(folder) {
 // =====================================================================
 R.home = () => {
   const el = h('<div class="page"></div>');
-  if (!Object.keys(lib.db.tracks).length && !lib.scanning) { el.appendChild(emptyLibrary()); return el; }
+  if (!Object.keys(lib.db.tracks).length && !lib.scanning) { el.appendChild(emptyLibrary()); el.appendChild(homeSoundsRow()); return el; }
   const hr = new Date().getHours(); const greet = hr < 5 ? 'Up late' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
   el.appendChild(h(`<div class="greet"><span>${greet}</span></div>`));
   // quick tiles: liked + recent playlists/albums
@@ -290,6 +292,7 @@ R.home = () => {
     el.appendChild(h(`<div class="sec"><h2>On repeat</h2><a data-go="mostplayed">Show all</a></div>`));
     el.appendChild(trackList(most.slice(0, 10).map((m) => m[0]), { source: { type: 'mostplayed', label: 'On repeat' }, album: true }));
   }
+  el.appendChild(homeSoundsRow());
   const genres = [...lib.idx.genres.values()].sort((a, b) => b.tracks.length - a.tracks.length).slice(0, 18);
   if (genres.length > 2) { el.appendChild(h(`<div class="sec"><h2>Moods & genres</h2></div>`)); el.appendChild(h(`<div class="chips">${genres.map((g) => `<a class="chip" data-genre="${esc(g.key)}">${esc(g.name)}</a>`).join('')}</div>`)); }
   wireCards(el);
@@ -815,6 +818,15 @@ R.settings = () => {
   if (app.isDesktop) {
     el.appendChild(h(`<div><h3>Window</h3><div class="set-group">${opt('Close button minimizes to tray', 'Keep playing in the background; quit from the tray icon', tog('closeToTray', S.closeToTray))}${opt('Mini player', 'Layouts, transparency, blur, always-on-top', `<button class="pill" data-minicustom>${ico('palette')}Customize</button><button class="pill" data-gomini>${ico('mini')}Open</button>`)}</div></div>`));
   }
+  // online
+  { const O = (S.online ||= {}); const ot = (k) => `<div class="tog ${O[k] !== false ? 'on' : ''}" data-online="${k}"></div>`;
+    el.appendChild(h(`<div><h3>Online</h3><div class="set-group">
+      ${opt('Lyrics', 'Synced, karaoke-style lyrics from LRCLIB (free, open) when a song has none', ot('lyrics'))}
+      ${opt('Song & artist info', 'Genre, release year and album from iTunes; artist photo and bio from Wikipedia', ot('info'))}
+      ${opt('Find missing covers', 'From iTunes and the Cover Art Archive, only for songs without art', ot('covers'))}
+      ${opt('Live radio', 'Free internet radio stations from radio-browser.info', ot('radio'))}
+      <p class="set-note">No accounts or keys. Only the song title and artist are sent, and results are saved on this device. Endless sounds work offline.</p>
+    </div></div>`)); }
   // gestures
   if (!app.isDesktop) {
     const G = S.gest; const actSel = (dir) => `<select class="inp" data-gest-sel="${dir}" style="width:170px;height:36px">${Object.entries(SWIPE_ACTIONS).map(([k, [l]]) => `<option value="${k}" ${G[dir] === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
@@ -841,6 +853,7 @@ R.settings = () => {
   // wiring
   el.addEventListener('click', async (e) => {
     const t = e.target;
+    const on = t.closest('[data-online]'); if (on) { const k = on.dataset.online; S.online ||= {}; S.online[k] = S.online[k] === false; on.classList.toggle('on', S.online[k] !== false); app.saveS(); return; }
     const gg = t.closest('[data-gest]'); if (gg) { const k = gg.dataset.gest; S.gest[k] = !S.gest[k]; gg.classList.toggle('on', S.gest[k]); app.saveS(); return; }
     const tg = t.closest('[data-tog]'); if (tg) { const k = tg.dataset.tog; S[k] = !S[k]; tg.classList.toggle('on', S[k]); app.saveS(); applyTheme(); if (k === 'leveler') player.applyLeveler(); return; }
     const pr = t.closest('[data-preset]'); if (pr) { applyPreset(pr.dataset.preset); refresh(); return; }
@@ -852,7 +865,7 @@ R.settings = () => {
     if (t.closest('[data-addroot]')) { addFolder(); return; }
     if (t.closest('[data-checkupd]')) { const info = el.querySelector('#updInfo'); info.textContent = ' • checking…'; const u = await checkForUpdate(true); info.innerHTML = u === null ? ' • couldn\'t reach GitHub' : u.newer ? ` • <b style="color:rgb(var(--acc-rgb))">${esc(u.version)} is available</b> — <a data-openrel style="text-decoration:underline;cursor:pointer">download</a>` : ' • you\'re on the latest version'; return; }
     if (t.closest('[data-openrel]')) { app.P.openURL(`https://github.com/${'Frenchbear1/Pulse'}/releases/latest`); return; }
-    if (t.closest('[data-repaircovers]')) { toast('Looking for covers…'); const r = await window.__pulseRepair?.(true); if (r) toast(r.fixed ? `Found ${r.fixed} covers` : `No embedded art found in ${r.total} song${r.total === 1 ? '' : 's'}${lib.coverErrors[0] ? ' — ' + lib.coverErrors[0] : ''}`, 5000); refresh(); return; }
+    if (t.closest('[data-repaircovers]')) { setTimeout(() => import('./online.js').then(async (O) => { if (!O.onlineOn('covers')) return; const n = await O.findMissingCovers((d, tot) => { if (tot) window.__pulsePill?.progress('Finding covers online', d, tot); }); window.__pulsePill?.finish(n ? `Found ${n} cover${n === 1 ? '' : 's'} online` : 'No more covers found online'); }), 2500); toast('Looking for covers…'); const r = await window.__pulseRepair?.(true); if (r) toast(r.fixed ? `Found ${r.fixed} covers` : `No embedded art found in ${r.total} song${r.total === 1 ? '' : 's'}${lib.coverErrors[0] ? ' — ' + lib.coverErrors[0] : ''}`, 5000); refresh(); return; }
     if (t.closest('[data-spimp]')) { import('./spotify.js').then((m) => m.openSpotifyImport()); return; }
     if (t.closest('[data-rescanall]')) { toast('Rescanning…'); await lib.rescanAll(); toast('Library up to date'); refresh(); return; }
     const rs = t.closest('[data-rescan]'); if (rs) { const r = roots.find((x) => x.id === rs.dataset.rescan); toast('Rescanning ' + r.name); await lib.rescan(r); refresh(); return; }

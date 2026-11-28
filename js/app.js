@@ -129,8 +129,10 @@ function updateVolume() {
 function updateTime() {
   const d = player.duration, c = player.time, f = d ? c / d : 0;
   seekS?.update(f); npSeekS?.update(f);
-  flip($('#tCur'), fmtTime(c)); flip($('#tDur'), fmtTime(d));
-  flip($('#npCur'), fmtTime(c)); flip($('#npDur'), d ? '-' + fmtTime(d - c) : '0:00');
+  const live = player.track?.live;
+  flip($('#tCur'), fmtTime(c)); flip($('#tDur'), live ? 'LIVE' : fmtTime(d));
+  flip($('#npCur'), fmtTime(c)); flip($('#npDur'), live ? 'LIVE' : d ? '-' + fmtTime(d - c) : '0:00');
+  document.body.classList.toggle('is-live', !!live);
   $('.mb-prog div').style.width = f * 100 + '%';
   try { const el = player.el; if (el.buffered.length && d) { const b = el.buffered.end(el.buffered.length - 1) / d; $('#seek').style.setProperty('--b', b); $('#npSeekBar').style.setProperty('--b', b); } } catch {}
   NP.miniTime(); NP.npTick();
@@ -326,7 +328,7 @@ export async function autoRepairCovers() {
   return res;
 }
 // The status pill: stays up long enough to read, counter never shifts the text, fades out gently
-const pill = {
+const pill = window.__pulsePill = {
   el: null, shownAt: 0, hideT: 0, added: 0,
   get node() { return (this.el ||= $('#scanPill')); },
   progress(label, done, total) {
@@ -336,6 +338,7 @@ const pill = {
     const lbl = n.querySelector('.lbl'); if (lbl.textContent !== label) lbl.textContent = label;
     const cnt = n.querySelector('.cnt'); const w = String(total.toLocaleString()).length;
     cnt.style.minWidth = (w * 2 + 3) + 'ch';
+    if (Date.now() - (this._ft || 0) < 250 && done < total) return; this._ft = Date.now(); // ~4 updates a second keeps it readable
     flip(cnt, `${done.toLocaleString().padStart(total.toLocaleString().length, ' ')} / ${total.toLocaleString()}`);
     this.added = total;
   },

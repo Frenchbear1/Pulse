@@ -3,6 +3,7 @@ import { app, lib, player, toast, go, menu, modal, closeLayer, coverImg, hydrate
 import { $, $$, esc, h, fmtTime, clamp, debounce } from './util.js';
 import { EQ_FREQS, EQ_PRESETS } from './player.js';
 import { trackMenu, albumKey, longPress } from './views.js';
+import { fetchLyrics, songInfo, artistInfo, fillFromInfo, findCover } from './online.js';
 import { companionSend, openCompanion, closeCompanion, pushState, host } from './companion.js';
 
 // ---------------- LRC lyrics ----------------
@@ -21,7 +22,8 @@ async function getLyrics(t) {
   if (!t) return null; if (lyricCache.has(t.id)) return lyricCache.get(t.id);
   let text = null, src = '';
   if (t.lrc) { try { text = await app.P.readLrc(t); src = 'Synced lyrics (.lrc)'; } catch {} }
-  if (!text && lib.db.lyrics[t.id]) { text = lib.db.lyrics[t.id]; src = 'Embedded lyrics'; }
+  if (!text && lib.db.lyrics[t.id]) { text = lib.db.lyrics[t.id]; src = lib.db.lyricSrc?.[t.id] === 'LRCLIB' ? 'Lyrics from LRCLIB' : lib.db.lyricSrc?.[t.id] === 'ai' ? 'Transcribed on this device (AI)' : 'Embedded lyrics'; }
+  if (!text && !t.virtual) { text = await fetchLyrics(t).catch(() => null); if (text) src = 'Lyrics from LRCLIB'; }
   if (!text) { lyricCache.set(t.id, null); return null; }
   const synced = /\[\d{1,3}:\d{1,2}/.test(text) ? parseLRC(text) : null;
   const r = { synced: synced && synced.length > 2 ? synced : null, plain: text.replace(/\[[^\]]*\]/g, '').trim(), src };
@@ -30,7 +32,19 @@ async function getLyrics(t) {
 export async function lyricsEl(t) {
   const L = await getLyrics(t);
   if (!t) return h('<div class="empty"><p>Play something to see lyrics.</p></div>');
-  if (!L) return h(`<div class="empty" style="padding:40px 10px"><svg><use href="#i-lyrics"/></svg><h3>No lyrics for this song</h3><p>${app.isDesktop ? 'Add lyrics to the file\'s tags, or drop a matching <b>.lrc</b> file next to the song for synced, karaoke-style lyrics.' : 'Embed lyrics in the file\'s tags or import a matching .lrc file alongside the song.'}</p></div>`);
+  if (!L) {
+    const e = h(`<div class="empty" style="padding:36px 10px"><svg><use href="#i-lyrics"/></svg><h3>No lyrics found</h3><p>${t.virtual ? 'This one doesn’t have words.' : 'Nothing online or in the file. Pulse can listen to the song and write them out with on-device AI (beta) — rough on busy mixes, but synced.'}</p>${t.virtual ? '' : `<button class="pill solid" data-ai>${ico('spark')}Transcribe lyrics</button><small class="ai-st"></small>`}</div>`);
+    e.querySelector('[data-ai]')?.addEventListener('click', async (ev) => {
+      const b = ev.currentTarget, st = e.querySelector('.ai-st'); b.disabled = true;
+      try {
+        const { transcribeLyrics } = await import('./transcribe.js');
+        const r = await transcribeLyrics(t, (msg, pct) => { st.textContent = msg + (pct ? ` ${Math.round(pct)}%` : ''); });
+        if (!r) { st.textContent = 'Couldn’t make out any words in this song.'; b.disabled = false; return; }
+        lyricCache.delete(t.id); toast('Lyrics transcribed'); drawPanel(); if (npTab === 'lyrics') { npTab = null; npRight('lyrics'); }
+      } catch (err) { st.textContent = 'Transcription failed: ' + (err.message || err); b.disabled = false; }
+    });
+    return e;
+  }
   if (!L.synced) return h(`<div class="lyrics plain">${L.plain.split(/\n{2,}/).map((p) => `<p>${esc(p)}</p>`).join('')}<div class="lyr-src">${esc(L.src)}</div></div>`);
   const el = h(`<div class="lyrics synced">${L.synced.map((l, i) => `<p data-i="${i}" data-t="${l.t}">${esc(l.txt) || '♪'}</p>`).join('')}<div class="lyr-src">${esc(L.src)}</div></div>`);
   el.addEventListener('click', (e) => { const p = e.target.closest('p[data-t]'); if (p) { player.seek(+p.dataset.t + 0.01); if (!player.playing) player.play(); } });
@@ -99,8 +113,26 @@ function infoEl() {
   q('[data-full]').onclick = () => openNP(true);
   el.addEventListener('click', (e) => { const r = e.target.closest('.qrow'); if (r) { const i = player.upNext.indexOf(r.dataset.id); if (i >= 0) { player.upNext.splice(i, 1); player.load(r.dataset.id, true); player.emit('queue'); } else player.next(); } });
   requestAnimationFrame(() => marquee(q('.marq')));
+  if (!t.virtual) onlineInfo(t, el);
   return el;
 }
+async function onlineInfo(t, el) {
+  const [si, ai] = await Promise.all([songInfo(t).catch(() => null), artistInfo(t.artist).catch(() => null)]);
+  if (!el.isConnected || player.track?.id !== t.id) return;
+  const kv = el.querySelector('.npv .kv');
+  if (si && kv) {
+    const missing = (si.genre && !t.genre) || (si.year && !t.year) || (si.album && (!t.album || t.albumGuess));
+    if (missing) { const b = h(`<button class="pill sm-pill">${ico('spark')}Fill in missing info</button>`); b.onclick = () => { if (fillFromInfo(t, si)) { toast('Song info updated'); drawPanel(); } }; kv.after(b); }
+    if (si.url) { const a = h(`<a class="npv-link">${ico('ext')}Open in Apple Music</a>`); a.onclick = () => app.P.openURL?.(si.url) ?? window.open(si.url); (el.querySelector('.npv-card') || el).appendChild(a); }
+  }
+  if (ai?.bio) {
+    const card = h(`<div class="npv-card npv-artist">${ai.img ? `<div class="npv-aimg" style="background-image:url('${ai.img.replace(/'/g, '%27')}')"></div>` : ''}<div class="npv-ct">About the artist</div><p>${esc(ai.bio)}</p>${ai.url ? `<a class="npv-link">${ico('ext')}Wikipedia</a>` : ''}</div>`);
+    card.querySelector('.npv-link')?.addEventListener('click', () => app.P.openURL?.(ai.url) ?? window.open(ai.url));
+    el.querySelector('.npv-full')?.before(card);
+  }
+}
+let coverTry = '';
+export function autoCover(t) { if (!t || t.cover || t.virtual || coverTry === t.id) return; coverTry = t.id; setTimeout(() => { if (!t.cover) findCover(t).catch(() => {}); }, 4000); }
 // ---------------- Devices (where the sound comes out) ----------------
 const devIcon = (l) => /airpods|buds|headphone|headset|earphone|wh-|wf-|beats|bose qc/i.test(l) ? 'headphones' : /hdmi|display|tv|nvidia|monitor|intel\(r\) display|amd high definition/i.test(l) ? 'tv' : /speaker|echo|alexa|soundbar|jbl|sonos|boom|ue /i.test(l) && !/realtek|laptop|internal/i.test(l) ? 'speaker' : 'laptop';
 const cleanLabel = (l) => (l || '').replace(/^Default - /, '').replace(/\s*\((?:[0-9a-f]{4}:[0-9a-f]{4}|Bluetooth)\)\s*$/i, '').trim();
@@ -499,6 +531,7 @@ export function npTick() {
 }
 export function refreshArt() { lastNPTrack = null; lastMini = null; updateNP(); updateMini(); drawPanel(); }
 export function onTrackChange() {
+  autoCover(player.track);
   if (app.S.panel === 'lyrics' || app.S.panel === 'info' || app.S.panel === 'queue') drawPanel();
   updateNP(); updateMini();
 }

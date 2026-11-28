@@ -21,7 +21,10 @@ export const lib = {
   save: null,
   saveNow() { return this.P.saveDB(this.db).catch((e) => console.warn('save failed', e)); },
 
-  track(id) { return this.db.tracks[id]; },
+  track(id) { return this.db.tracks[id] || this.virtual.get(id); },
+  // radio stations / generated sounds: playable like songs, never saved to the library
+  virtual: new Map(),
+  addVirtual(t) { this.virtual.set(t.id, { virtual: true, duration: 0, ...t }); return t.id; },
   get allTracks() { return Object.values(this.db.tracks); },
 
   reindex(quiet) {
@@ -254,9 +257,10 @@ export const lib = {
   },
 
   // ----- stats -----
-  like(id, v) { if (v ?? !this.db.liked[id]) this.db.liked[id] = Date.now(); else delete this.db.liked[id]; this.save(); this.emit('liked', id); },
+  like(id, v) { if (this.virtual.has(id)) return; if (v ?? !this.db.liked[id]) this.db.liked[id] = Date.now(); else delete this.db.liked[id]; this.save(); this.emit('liked', id); },
   isLiked(id) { return !!this.db.liked[id]; },
   played(id) {
+    if (this.virtual.has(id)) return;
     this.db.plays[id] = (this.db.plays[id] || 0) + 1; this.db.last[id] = Date.now();
     this.db.history = [id, ...this.db.history.filter((x) => x !== id)].slice(0, 300); this.save();
   },
