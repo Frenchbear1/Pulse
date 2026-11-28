@@ -7,7 +7,7 @@ import { hashStr, hashBytes, pool, processCover, debounce, norm, sortKey, uid, c
 export const ARTIST_SEP_SRC = '\\s*(;|,| / | feat\\.? | ft\\.? | featuring | & )\\s*';
 export const splitArtists = (a) => String(a || '').split(new RegExp(ARTIST_SEP_SRC, 'i')).filter((_, i) => i % 2 === 0).map((x) => x.trim()).filter(Boolean);
 export const primaryArtist = (a) => splitArtists(a)[0] || '';
-export const albumKeyOf = (t) => norm(t.albumArtist || primaryArtist(t.artist) || 'Unknown Artist') + '\u0001' + norm(t.album || 'Unknown Album');
+export const albumKeyOf = (t) => norm(t.albumArtist || t.compArtist || primaryArtist(t.artist) || 'Unknown Artist') + '\u0001' + norm(t.album || 'Unknown Album');
 export const lib = {
   db: null, P: null,
   idx: { albums: new Map(), artists: new Map(), genres: new Map(), folders: null, search: new Map() },
@@ -42,8 +42,22 @@ export const lib = {
   reindex(quiet) {
     const albums = new Map(), artists = new Map(), genres = new Map(), search = new Map();
     const folders = { name: 'Folders', children: new Map(), tracks: [], key: '' };
+    // Compilations: one album in one folder, many different artists, no album-artist tag. Without this a
+    // soundtrack or "Now 80s" shows up as twenty one-song albums; group it under Various Artists instead.
+    const comp = new Map();
     for (const t of Object.values(this.db.tracks)) {
-      const aa = t.albumArtist || primaryArtist(t.artist) || 'Unknown Artist';
+      if (t.compArtist) delete t.compArtist;
+      if (t.albumArtist || !t.album || t.albumGuess) continue;
+      const k = (t.root || '') + '|' + (t.dirs || []).join('/') + '|' + norm(t.album);
+      let g = comp.get(k); if (!g) comp.set(k, g = []); g.push(t);
+    }
+    for (const g of comp.values()) {
+      if (g.length < 4) continue;
+      const c = new Map(); for (const t of g) { const a = norm(primaryArtist(t.artist)); c.set(a, (c.get(a) || 0) + 1); }
+      if (c.size >= 3 && Math.max(...c.values()) / g.length <= 0.5) for (const t of g) t.compArtist = 'Various Artists';
+    }
+    for (const t of Object.values(this.db.tracks)) {
+      const aa = t.albumArtist || t.compArtist || primaryArtist(t.artist) || 'Unknown Artist';
       const ak = norm(aa) + '\u0001' + norm(t.album || 'Unknown Album');
       let al = albums.get(ak);
       if (!al) albums.set(ak, al = { key: ak, name: t.album || 'Unknown Album', artist: aa, year: t.year || 0, cover: t.cover, tracks: [] });

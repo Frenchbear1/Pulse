@@ -405,10 +405,10 @@ R.album = ({ key }) => {
   const al = lib.idx.albums.get(key); if (!al) return h('<div class="page"><div class="empty"><h3>Album not found</h3></div></div>');
   const color = lib.db.covers[al.cover]?.color;
   const discs = new Set(al.tracks.map((i) => T(i).disc || 1)).size;
-  const hero = heroEl({ kind: 'Album', title: al.name, art: al.cover ? coverImg(al.cover, false) : ico('album'), color, stats: `<a data-artist="${esc(norm(al.artist))}"><b>${esc(al.artist)}</b></a>${al.year ? ' • ' + al.year : ''} • ${plural(al.tracks.length, 'song')}${discs > 1 ? ` (${discs} discs)` : ''}, ${fmtLong(sumDur(al.tracks))}` });
+  const hero = heroEl({ kind: 'Album', title: al.name, art: al.cover ? coverImg(al.cover, false) : ico('album'), color, stats: `${lib.idx.artists.has(norm(al.artist)) ? `<a data-artist="${esc(norm(al.artist))}"><b>${esc(al.artist)}</b></a>` : `<b>${esc(al.artist)}</b>`}${al.year ? ' • ' + al.year : ''} • ${plural(al.tracks.length, 'song')}${discs > 1 ? ` (${discs} discs)` : ''}, ${fmtLong(sumDur(al.tracks))}` });
   hero.addEventListener('click', (e) => { const a = e.target.closest('[data-artist]'); if (a) go('artist', { key: a.dataset.artist }); });
   const el = listPage({ title: al.name, ids: al.tracks, source: { type: 'album', id: key, label: al.name }, hero, numbers: 'track', album: false });
-  const more = h(`<button class="ib" title="More">${ico('more')}</button>`); more.onclick = () => menu([{ label: 'Add to queue', icon: 'plus', action: () => player.addToQueue(al.tracks) }, { label: 'Add to playlist', icon: 'playlist', sub: () => playlistPicker(al.tracks) }, { label: 'Go to artist', icon: 'artist', action: () => go('artist', { key: norm(al.artist) }) }], { el: more });
+  const more = h(`<button class="ib" title="More">${ico('more')}</button>`); more.onclick = () => menu([{ label: 'Add to queue', icon: 'plus', action: () => player.addToQueue(al.tracks) }, { label: 'Add to playlist', icon: 'playlist', sub: () => playlistPicker(al.tracks) }, lib.idx.artists.has(norm(al.artist)) && { label: 'Go to artist', icon: 'artist', action: () => go('artist', { key: norm(al.artist) }) }], { el: more });
   el.querySelector('.actions [data-a=shuffle]').after(more);
   // more by artist
   const ar = lib.idx.artists.get(norm(al.artist));
@@ -832,6 +832,8 @@ R.settings = () => {
     opt('Crossfade', 'Blend the end of one song into the next', `<input type="range" min="0" max="12" step="1" value="${S.crossfade}" data-range="crossfade"><span class="val">${S.crossfade ? S.crossfade + 's' : 'Off'}</span>`) +
     opt('Smooth pause & play', 'Quick fade instead of a hard stop', tog('fadePause', S.fadePause)) +
     opt('Volume leveler', 'Evens out loud and quiet songs', tog('leveler', S.leveler)) +
+    opt('Smart shuffle', 'Leans toward songs you like and keeps the same artist from playing back to back', tog('smartShuffle', S.smartShuffle)) +
+    opt('Resume long recordings', 'Audiobooks, mixes and podcasts over 20 minutes pick up where you left off', tog('resumeLong', S.resumeLong)) +
     opt('Equalizer & sound', 'EQ, presets, speed, pitch', `<button class="pill" data-sound>${ico('eq')}Open</button>`);
   if (!app.isMobile) pb += opt('Now playing view', 'What clicking the cover in the player bar opens. The ⤢ button is always full screen.', segOf('npView', [['panel', 'Side panel'], ['full', 'Full screen']]));
   if (!app.isDesktop) pb += opt('Audio effects engine', 'Needed for EQ, crossfade and the visualizer. On iPhone it can stop background playback when locked — leave on Auto unless you want effects.', `<div class="seg" data-seg="engine">${[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button data-v="${k}" class="${S.engine === k ? 'on' : ''}">${l}</button>`).join('')}</div>`);

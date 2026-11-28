@@ -6,7 +6,7 @@ import { $, $$, esc, h, debounce, toast, clamp } from './util.js';
 export const DEFAULTS = {
   theme: 'dark', accentMode: 'dynamic', accent: '#7c5cff', accent2: 'auto', bgMode: 'aurora', wallpaper: null, blur: 28, glass: 0.35, radius: 20, font: 'system', preset: 'pulse',
   anim: 'full', compact: false, transp: 0.6, glow: 1,
-  volume: 0.8, muted: false, speed: 1, keepPitch: true, shuffle: false, repeat: 'off', crossfade: 0, fadePause: true, leveler: false,
+  volume: 0.8, muted: false, speed: 1, keepPitch: true, shuffle: false, repeat: 'off', crossfade: 0, fadePause: true, leveler: false, smartShuffle: true, resumeLong: true,
   eqOn: false, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], preamp: 0, eqPreset: 'Flat', engine: 'auto',
   sideMini: false, panel: null, viz: 'bars', blurLyrics: false, lastView: null, songsSort: { k: 'added', d: -1 }, albumSort: 'name', gridSize: 172,
   mini: { layout: 'bar', opacity: 0.9, blur: 40, art: true, onTop: true, progress: true, times: true, radius: 14 },
