@@ -1,6 +1,6 @@
 // Library: database, indexes, scanning/importing, playlists & tiered folders.
 import { readTags } from './tags.js';
-import { hashStr, hashBytes, pool, processCover, debounce, norm, sortKey, uid } from './util.js';
+import { hashStr, hashBytes, pool, processCover, debounce, norm, sortKey, uid, cmpText } from './util.js';
 
 export const primaryArtist = (a) => String(a || '').split(/\s*(?:;|,|\/| feat\.? | ft\.? | featuring | & | x | with )\s*/i)[0].trim();
 export const albumKeyOf = (t) => norm(t.albumArtist || primaryArtist(t.artist) || 'Unknown Artist') + '\u0001' + norm(t.album || 'Unknown Album');
@@ -52,7 +52,7 @@ export const lib = {
       node.tracks.push(t.id);
       search.set(t.id, norm([t.title, t.artist, t.album, t.albumArtist, t.genre, t.composer, t.year].join(' ')));
     }
-    for (const al of albums.values()) al.tracks.sort((a, b) => { const x = this.db.tracks[a], y = this.db.tracks[b]; return (x.disc || 1) - (y.disc || 1) || (x.track || 0) - (y.track || 0) || sortKey(x.title).localeCompare(sortKey(y.title)); });
+    for (const al of albums.values()) al.tracks.sort((a, b) => { const x = this.db.tracks[a], y = this.db.tracks[b]; return (x.disc || 1) - (y.disc || 1) || (x.track || 0) - (y.track || 0) || cmpText(x.title, y.title); });
     this.idx = { albums, artists, genres, folders, search };
     this.emit('index', quiet ? { quiet: true } : null);
   },
@@ -262,7 +262,21 @@ export const lib = {
   played(id) {
     if (this.virtual.has(id)) return;
     this.db.plays[id] = (this.db.plays[id] || 0) + 1; this.db.last[id] = Date.now();
-    this.db.history = [id, ...this.db.history.filter((x) => x !== id)].slice(0, 300); this.save();
+    this.db.history = [id, ...this.db.history.filter((x) => x !== id)].slice(0, 300);
+    const sk = this.db.skips; if (sk?.[id]) { if (sk[id] <= 1) delete sk[id]; else sk[id]--; }
+    this.save();
+  },
+  // a song skipped in its first 30 s: smart shuffle plays it later next time (decays every full play)
+  skipped(id) { if (this.virtual.has(id) || !this.db.tracks[id]) return; const sk = this.db.skips ||= {}; sk[id] = Math.min(10, (sk[id] || 0) + 1); this.save(); },
+  // listening time, for Your stats: per day (with an hour-of-day histogram), per artist and per song
+  listened(id, secs) {
+    const t = this.db.tracks[id]; if (!t || !(secs > 0) || secs > 30) return;
+    const st = this.db.stats ||= { since: Date.now(), days: {}, artists: {}, tracks: {} };
+    const d = new Date(); const day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const D = st.days[day] ||= { s: 0, h: new Array(24).fill(0) }; D.s += secs; D.h[d.getHours()] += secs;
+    const a = primaryArtist(t.artist) || 'Unknown Artist'; st.artists[a] = (st.artists[a] || 0) + secs;
+    st.tracks[id] = (st.tracks[id] || 0) + secs;
+    if (!this._statSave) this._statSave = setTimeout(() => { this._statSave = null; const ks = Object.keys(st.days); if (ks.length > 500) for (const k of ks.sort().slice(0, ks.length - 500)) delete st.days[k]; this.save(); }, 120000);
   },
   setDuration(id, d) { const t = this.db.tracks[id]; if (t && d && isFinite(d) && Math.abs((t.duration || 0) - d) > 1) { t.duration = d; this.save(); } },
 
@@ -280,7 +294,7 @@ export const lib = {
     const n = this.db.nodes[id]; if (!n) return;
     for (const c of [...n.children]) this.deleteNode(c);
     const list = n.parent ? this.db.nodes[n.parent]?.children : this.db.rootNodes;
-    if (list) list.splice(list.indexOf(id), 1);
+    const at = list ? list.indexOf(id) : -1; if (at >= 0) list.splice(at, 1);
     delete this.db.nodes[id]; this.save(); this.emit('nodes');
   },
   isAncestor(a, b) { let n = this.db.nodes[b]; while (n) { if (n.id === a) return true; n = this.db.nodes[n.parent]; } return false; },

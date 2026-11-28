@@ -1,6 +1,6 @@
 // All page views + the virtualized track list + track/playlist actions.
 import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS, VERSION, checkForUpdate, haptic, SWIPE_ACTIONS } from './core.js';
-import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce } from './util.js';
+import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce, cmpText } from './util.js';
 import { EQ_PRESETS } from './player.js';
 import { albumKeyOf, primaryArtist } from './library.js';
 
@@ -304,10 +304,10 @@ R.home = () => {
 // SONGS
 // =====================================================================
 const sorters = {
-  title: (a, b) => sortKey(a.title).localeCompare(sortKey(b.title)),
-  artist: (a, b) => sortKey(a.artist).localeCompare(sortKey(b.artist)) || sortKey(a.album).localeCompare(sortKey(b.album)) || (a.track - b.track),
-  album: (a, b) => sortKey(a.album).localeCompare(sortKey(b.album)) || (a.disc - b.disc) || (a.track - b.track),
-  added: (a, b) => a.added - b.added || sortKey(a.title).localeCompare(sortKey(b.title)),
+  title: (a, b) => cmpText(a.title, b.title),
+  artist: (a, b) => cmpText(a.artist, b.artist) || cmpText(a.album, b.album) || (a.track - b.track),
+  album: (a, b) => cmpText(a.album, b.album) || (a.disc - b.disc) || (a.track - b.track),
+  added: (a, b) => a.added - b.added || cmpText(a.title, b.title),
   duration: (a, b) => a.duration - b.duration,
   plays: (a, b) => (lib.db.plays[a.id] || 0) - (lib.db.plays[b.id] || 0),
   year: (a, b) => (a.year || 0) - (b.year || 0),
@@ -365,20 +365,26 @@ function gridPage(title, items, card, sortOpts, onSortKey) {
   const el = h(`<div class="page"><div class="page-h"><h1>${esc(title)}</h1></div></div>`);
   const head = el.querySelector('.page-h');
   let q = ''; const grid = h('<div class="grid"></div>');
-  const draw = () => { const list = q ? items.filter((x) => norm(x.name + ' ' + (x.artist || '')).includes(norm(q))) : items; grid.innerHTML = list.slice(0, 3000).map(card).join(''); hydrate(grid); };
+  // draw in chunks as you scroll: big libraries open instantly and nothing is cut off
+  const CH = 120; let list = items, shown = 0; const more = h('<div class="grid-more" aria-hidden="true"></div>');
+  const io = 'IntersectionObserver' in window ? new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) drawMore(); }, { root: $('#view'), rootMargin: '900px' }) : null;
+  const drawMore = () => { if (shown >= list.length) return; const html = list.slice(shown, shown + CH).map((x, i) => card(x, shown ? 0 : i)).join(''); shown += CH; grid.insertAdjacentHTML('beforeend', html); hydrate(grid); if (!io && shown < list.length) setTimeout(drawMore, 30); };
+  const draw = () => { const nq = norm(q); list = nq ? items.filter((x) => norm(x.name + ' ' + (x.artist || '')).includes(nq)) : items; grid.innerHTML = ''; shown = 0; drawMore(); if (!list.length && q) grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><p>Nothing matches that filter.</p></div>'; };
+  if (io) { io.observe(more); const pc = app.cleanup; app.cleanup = () => { pc?.(); io.disconnect(); }; }
   head.appendChild(filterBox((v) => { q = v; draw(); }));
   if (sortOpts) { const b = h(`<button class="pill">${ico('sort')}<span>${sortOpts.find((s) => s[0] === app.S[onSortKey])?.[1] || 'Sort'}</span></button>`); b.onclick = () => menu(sortOpts.map(([k, l]) => ({ label: l, checked: app.S[onSortKey] === k, action: () => { app.S[onSortKey] = k; app.saveS(); refresh(); } })), { el: b, right: true }); head.appendChild(b); }
   const sz = h(`<button class="ib" title="Card size">${ico('grid')}</button>`); sz.onclick = () => { const sizes = [132, 172, 220]; app.S.gridSize = sizes[(sizes.indexOf(app.S.gridSize) + 1) % sizes.length]; app.saveS(); applyTheme(); }; head.appendChild(sz);
-  el.appendChild(grid); draw(); wireCards(el);
+  el.appendChild(grid); el.appendChild(more); draw(); wireCards(el);
   return el;
 }
 R.albums = () => {
   const k = app.S.albumSort; let list = [...lib.idx.albums.values()];
-  const f = { name: (a, b) => sortKey(a.name).localeCompare(sortKey(b.name)), artist: (a, b) => sortKey(a.artist).localeCompare(sortKey(b.artist)) || b.year - a.year, year: (a, b) => (b.year || 0) - (a.year || 0), added: (a, b) => Math.max(...b.tracks.map((i) => T(i).added)) - Math.max(...a.tracks.map((i) => T(i).added)) }[k] || ((a, b) => sortKey(a.name).localeCompare(sortKey(b.name)));
+  const addedAt = new Map(); const addedOf = (al) => { let v = addedAt.get(al); if (v === undefined) { v = 0; for (const i of al.tracks) v = Math.max(v, T(i)?.added || 0); addedAt.set(al, v); } return v; };
+  const f = { name: (a, b) => cmpText(a.name, b.name), artist: (a, b) => cmpText(a.artist, b.artist) || b.year - a.year, year: (a, b) => (b.year || 0) - (a.year || 0), added: (a, b) => addedOf(b) - addedOf(a) }[k] || ((a, b) => cmpText(a.name, b.name));
   list.sort(f);
   return gridPage('Albums', list, albumCard, [['name', 'Name'], ['artist', 'Artist'], ['year', 'Year'], ['added', 'Recently added']], 'albumSort');
 };
-R.artists = () => gridPage('Artists', [...lib.idx.artists.values()].sort((a, b) => sortKey(a.name).localeCompare(sortKey(b.name))), artistCard);
+R.artists = () => gridPage('Artists', [...lib.idx.artists.values()].sort((a, b) => cmpText(a.name, b.name)), artistCard);
 R.album = ({ key }) => {
   const al = lib.idx.albums.get(key); if (!al) return h('<div class="page"><div class="empty"><h3>Album not found</h3></div></div>');
   const color = lib.db.covers[al.cover]?.color;
@@ -434,13 +440,13 @@ R.folders = ({ key = '' }) => {
     acts.querySelector('[data-mirror]').onclick = () => { const n = lib.mirrorFolder(key); toast(`Saved "${f.name}" to Your Library`); go('node', { id: n.id }); };
   }
   if (f.children.size) {
-    const kids = [...f.children.values()].sort((a, b) => sortKey(a.name).localeCompare(sortKey(b.name)));
+    const kids = [...f.children.values()].sort((a, b) => cmpText(a.name, b.name));
     const p = h(`<div class="page" style="padding-top:${key ? 0 : 8}px;padding-bottom:0">${key ? `<div class="sec" style="margin-top:4px"><h2>Folders</h2></div>` : ''}<div class="grid">${kids.map((c, i) => { const n = lib.folderAllTracks(c).length; return cardHTML({ cover: c.cover ? coverImg(c.cover, false) : `<div class="gen-cover" style="--gc:var(--s2)">${ico('folder')}</div>`, title: c.name, sub: `${c.children.size ? plural(c.children.size, 'folder') + ' • ' : ''}${plural(n, 'song')}`, data: `data-fold="${esc(c.key)}"`, i }); }).join('')}</div></div>`);
     wireCards(p); el.appendChild(p);
   }
   if (f.tracks.length) {
     if (f.children.size) el.appendChild(h('<div class="page" style="padding-bottom:0"><div class="sec" style="margin-top:6px"><h2>Songs in this folder</h2></div></div>'));
-    el.appendChild(trackList(sortIds(f.tracks, { k: 'track', d: 1 }).sort((a, b) => (T(a).disc - T(b).disc) || (T(a).track - T(b).track) || sortKey(T(a).name).localeCompare(sortKey(T(b).name))), { source: { type: 'folder', id: key, label: f.name } }));
+    el.appendChild(trackList(sortIds(f.tracks, { k: 'track', d: 1 }).sort((a, b) => (T(a).disc - T(b).disc) || (T(a).track - T(b).track) || cmpText(T(a).name, T(b).name)), { source: { type: 'folder', id: key, label: f.name } }));
   }
   el.addEventListener('click', (e) => { const c = e.target.closest('.crumbs [data-fold]'); if (c) go('folders', { key: c.dataset.fold }); });
   return el;
@@ -490,7 +496,7 @@ let libQuery = '';
 export const LIB_VIEWS = [['all', 'Everything'], ['playlists', 'Playlists only'], ['folders', 'Folders only'], ['pinned', 'Pinned']];
 function sortNodes(ids) {
   const k = app.S.libSort || 'recent'; const N = (id) => lib.node(id);
-  const by = { recent: (a, b) => (N(b).lastPlayed || N(b).updated || N(b).created || 0) - (N(a).lastPlayed || N(a).updated || N(a).created || 0), added: (a, b) => (N(b).created || 0) - (N(a).created || 0), alpha: (a, b) => sortKey(N(a).name).localeCompare(sortKey(N(b).name)), plays: (a, b) => (N(b).plays || 0) - (N(a).plays || 0) }[k];
+  const by = { recent: (a, b) => (N(b).lastPlayed || N(b).updated || N(b).created || 0) - (N(a).lastPlayed || N(a).updated || N(a).created || 0), added: (a, b) => (N(b).created || 0) - (N(a).created || 0), alpha: (a, b) => cmpText(N(a).name, N(b).name), plays: (a, b) => (N(b).plays || 0) - (N(a).plays || 0) }[k];
   const list = ids.filter((id) => N(id));
   const pinned = list.filter((id) => N(id).pinned).sort((a, b) => (N(a).pinned || 0) - (N(b).pinned || 0));
   const rest = list.filter((id) => !N(id).pinned); if (by) rest.sort(by);
