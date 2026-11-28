@@ -2,7 +2,11 @@
 import { readTags } from './tags.js';
 import { hashStr, hashBytes, pool, processCover, debounce, norm, sortKey, uid, cmpText } from './util.js';
 
-export const primaryArtist = (a) => String(a || '').split(/\s*(?:;|,|\/| feat\.? | ft\.? | featuring | & | x | with )\s*/i)[0].trim();
+// One rule for splitting "A feat. B, C & D" everywhere (index, links, Go to artist), so every artist link has a page.
+// A bare slash stays (AC/DC); " / " with spaces splits.
+export const ARTIST_SEP_SRC = '\\s*(;|,| / | feat\\.? | ft\\.? | featuring | & )\\s*';
+export const splitArtists = (a) => String(a || '').split(new RegExp(ARTIST_SEP_SRC, 'i')).filter((_, i) => i % 2 === 0).map((x) => x.trim()).filter(Boolean);
+export const primaryArtist = (a) => splitArtists(a)[0] || '';
 export const albumKeyOf = (t) => norm(t.albumArtist || primaryArtist(t.artist) || 'Unknown Artist') + '\u0001' + norm(t.album || 'Unknown Album');
 export const lib = {
   db: null, P: null,
@@ -14,12 +18,20 @@ export const lib = {
 
   async load(P) {
     this.P = P;
-    const db = (await P.loadDB()) || {};
+    let db = {};
+    // A failed read is not a first run: never let an empty library overwrite the real one.
+    try { db = (await P.loadDB()) || {}; } catch (e) { console.error('library load failed', e); this.readOnly = true; }
     this.db = Object.assign({ v: 1, roots: [], tracks: {}, lyrics: {}, covers: {}, nodes: {}, rootNodes: [], liked: {}, plays: {}, last: {}, history: [], session: null }, db);
     this.reindex();
   },
   save: null,
-  saveNow() { return this.P.saveDB(this.db).catch((e) => console.warn('save failed', e)); },
+  saveNow() {
+    if (this.readOnly) return Promise.resolve();
+    // one save at a time; the latest state always wins
+    if (this._saving) { this._again = true; return this._saving; }
+    const run = async () => { do { this._again = false; await this.P.saveDB(this.db).catch((e) => console.warn('save failed', e)); } while (this._again); this._saving = null; };
+    return (this._saving = run());
+  },
 
   track(id) { return this.db.tracks[id] || this.virtual.get(id); },
   // radio stations / generated sounds: playable like songs, never saved to the library
@@ -36,7 +48,7 @@ export const lib = {
       let al = albums.get(ak);
       if (!al) albums.set(ak, al = { key: ak, name: t.album || 'Unknown Album', artist: aa, year: t.year || 0, cover: t.cover, tracks: [] });
       al.tracks.push(t.id); if (!al.cover && t.cover) al.cover = t.cover; if (!al.year && t.year) al.year = t.year;
-      const names = new Set(String(t.artist || 'Unknown Artist').split(/\s*(?:;|,|\/| feat\.? | ft\.? | & | x )\s*/i).filter(Boolean));
+      const names = new Set(splitArtists(t.artist || 'Unknown Artist'));
       if (t.albumArtist) names.add(t.albumArtist);
       for (const n of names) {
         const k = norm(n); let ar = artists.get(k);
@@ -381,4 +393,5 @@ export const lib = {
     return this.createNode('playlist', name, null, { tracks: ids });
   }
 };
-lib.save = debounce(() => lib.saveNow(), 800);
+// Debounced save that still flushes at least every 5 s, so a long scan can't keep postponing it.
+lib.save = (() => { let t = 0, first = 0; return () => { const now = Date.now(); first ||= now; clearTimeout(t); t = setTimeout(() => { first = 0; lib.saveNow(); }, Math.max(0, Math.min(800, 5000 - (now - first)))); }; })();

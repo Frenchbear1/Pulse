@@ -6,12 +6,15 @@ let worker = null;
 const fmt = (s) => { const m = Math.floor(s / 60), x = s - m * 60; return `[${String(m).padStart(2, '0')}:${x.toFixed(2).padStart(5, '0')}]`; };
 async function decode16k(t) {
   const url = await app.P.audioURL(t); const buf = await (await fetch(url)).arrayBuffer();
-  const ctx = new (window.AudioContext || window.webkitAudioContext)(); const a = await ctx.decodeAudioData(buf); ctx.close();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)(); let a; try { a = await ctx.decodeAudioData(buf); } finally { ctx.close().catch?.(() => {}); } // iPhone limits open audio contexts
   const off = new OfflineAudioContext(1, Math.ceil(a.duration * 16000), 16000);
   const src = off.createBufferSource(); src.buffer = a; src.connect(off.destination); src.start();
   return (await off.startRendering()).getChannelData(0);
 }
-export async function transcribeLyrics(t, onStatus) {
+// one song at a time: the worker answers a single request
+let chain = Promise.resolve();
+export function transcribeLyrics(t, onStatus) { const run = chain.then(() => transcribeOne(t, onStatus)); chain = run.catch(() => {}); return run; }
+async function transcribeOne(t, onStatus) {
   if (!t || t.virtual) return null;
   onStatus?.('Reading the song…', 0);
   const audio = await decode16k(t);

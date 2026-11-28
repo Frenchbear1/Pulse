@@ -35,6 +35,7 @@ async function boot() {
   updateBar(); updateState(); updateModes(); updateVolume();
   if (app.S.panelOpen !== false && !app.isMobile) NP.openPanel(app.S.panel || 'info');
   requestAnimationFrame(() => document.body.classList.remove('booting'));
+  if (lib.readOnly) setTimeout(() => toast("Couldn't read your library, so nothing will be saved this session (your data is untouched). Restart Pulse to try again.", 9000), 600);
 
   // desktop: background rescan + folder watching
   if (isDesktop) {
@@ -283,7 +284,8 @@ function wireShell() {
       case 'p': case 'P': NP.togglePanel(); break;
       case 'f': case 'F': NP.isNPOpen() ? NP.closeNP() : NP.openNP(); break;
       case '/': e.preventDefault(); $('#searchInput').focus(); break;
-      case 'MediaPlayPause': player.toggle(); break; case 'MediaTrackNext': player.next(); break; case 'MediaTrackPrevious': player.prev(); break;
+      // with a song loaded the media keys arrive through Media Session; handling them here too would toggle twice
+      case 'MediaPlayPause': if (!msActive()) player.toggle(); break; case 'MediaTrackNext': if (!msActive()) player.next(); break; case 'MediaTrackPrevious': if (!msActive()) player.prev(); break;
     }
   });
   // mouse back/forward buttons
@@ -363,6 +365,7 @@ const pill = window.__pulsePill = {
 };
 // A folder called "Liked Songs" (or Liked / Favorites)? Offer to heart everything in it, optionally kept in sync.
 const LIKED_RE = /^(liked|liked songs|my liked songs|favou?rites|loved|loved tracks)$/i;
+const msActive = () => 'mediaSession' in navigator && !!navigator.mediaSession.metadata;
 let likedAsking = false;
 async function checkLikedFolders() {
   if (likedAsking || !lib.idx.folders) return;
@@ -380,10 +383,11 @@ async function checkLikedFolders() {
         <div class="opt"><div class="l"><b>Keep in sync</b><small>Songs added to this folder later get liked automatically</small></div><div class="r"><div class="tog on" id="lkSync"></div></div></div>
         <div class="row"><button class="pill" id="lkNo">Not now</button><button class="pill solid" id="lkYes">${ico('heart-f')}Like ${ids.length.toLocaleString()} songs</button></div>`);
       const tg = m.querySelector('#lkSync'); tg.onclick = () => tg.classList.toggle('on');
-      m.querySelector('#lkNo').onclick = () => { closeLayer(); res('no'); };
-      m.querySelector('#lkYes').onclick = () => { const sync = tg.classList.contains('on'); closeLayer(); res(sync ? 'sync' : 'once'); };
+      m._onClose = () => res(null); // dismissed: ask again another time
+      m.querySelector('#lkNo').onclick = () => { res('no'); closeLayer(); };
+      m.querySelector('#lkYes').onclick = () => { const sync = tg.classList.contains('on'); res(sync ? 'sync' : 'once'); closeLayer(); };
     });
-    likedAsking = false; S.likedFolders[f.key] = choice; app.saveS();
+    likedAsking = false; if (!choice) break; S.likedFolders[f.key] = choice; app.saveS();
     if (choice !== 'no') { let c = 0; for (const id of ids) if (!lib.db.liked[id]) { const t = lib.track(id); lib.db.liked[id] = t?.mtime || t?.added || Date.now(); c++; } changed += c; toast(`Added ${c.toLocaleString()} songs to Liked Songs`); }
     break; // one question at a time
   }

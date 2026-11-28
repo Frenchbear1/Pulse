@@ -37,18 +37,14 @@ export const player = {
       a.addEventListener('timeupdate', () => i === this.active && this.onTime());
       a.addEventListener('ended', () => i === this.active && this.onEnded());
       a.addEventListener('play', () => i === this.active && this.setPlaying(true));
-      a.addEventListener('pause', () => i === this.active && !this.fading && !this._inGap && this.setPlaying(false));
+      a.addEventListener('pause', () => i === this.active && !this._inGap && !this._swapping && this.setPlaying(false));
       a.addEventListener('loadedmetadata', () => { if (i === this.active) { lib.setDuration(this.current, a.duration); this.emit('time'); this.updatePosition(); } });
       a.addEventListener('waiting', () => i === this.active && this.emit('buffer', true));
       a.addEventListener('playing', () => { if (i === this.active) { this._errRun = 0; this.emit('buffer', false); } });
       a.addEventListener('error', () => {
         if (i !== this.active) { if (this.preloaded?.el === a) this.preloaded = null; return; } // a broken preload: just forget it
         if (!this.current || !a.getAttribute('src')) return;
-        this.emit('error', this.track);
-        // skip to the next song, but stop if many in a row fail (moved/deleted folder) instead of spinning forever
-        this._errRun = (this._errRun || 0) + 1;
-        if (this._errRun >= Math.min(8, Math.max(2, this.ctxList.length))) { this._errRun = 0; this.setPlaying(false); this.emit('errorstop'); return; }
-        clearTimeout(this._errT); this._errT = setTimeout(() => this.next(true), 600);
+        this.failed(this.track);
       });
       this.els.push(a);
     }
@@ -61,9 +57,32 @@ export const player = {
     L.addEventListener('playing', () => this.liveMode && this.emit('buffer', false));
     L.addEventListener('error', () => { if (this.liveMode && L.src) { this.emit('error', this.track); this.setPlaying(false); } });
     this.applyVolume(); this.applySpeed();
+    // iPhone only lets an audio element start on its own (locked screen, gapless swap) if it was started
+    // once from a tap. On the first tap, give the spare element a split second of silence.
+    if (isIOS) {
+      const SILENT = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+      const unlock = () => {
+        removeEventListener('pointerdown', unlock, true); removeEventListener('keydown', unlock, true);
+        for (const a of this.els) {
+          if (a === this.el || a.getAttribute('src')) continue;
+          a.src = SILENT;
+          a.play().then(() => a.pause()).catch(() => {}).finally(() => { if (a.getAttribute('src') === SILENT) { a.removeAttribute('src'); a.load(); } });
+        }
+      };
+      addEventListener('pointerdown', unlock, true); addEventListener('keydown', unlock, true);
+    }
     const want = settings.engine === 'on' || (settings.engine !== 'off' && !isIOS);
     if (want) this.enableEngine();
     this.setupMediaSession();
+  },
+
+  // A song that can't play: skip to the next one, but stop if many in a row fail
+  // (a moved or deleted folder) instead of spinning forever.
+  failed(t) {
+    this.emit('error', t);
+    this._errRun = (this._errRun || 0) + 1;
+    if (this._errRun >= Math.min(8, Math.max(2, this.ctxList.length))) { this._errRun = 0; this.setPlaying(false); this.emit('errorstop'); return; }
+    clearTimeout(this._errT); this._errT = setTimeout(() => this.next(true), 600);
   },
 
   // ---------- Web Audio engine ----------
@@ -127,8 +146,8 @@ export const player = {
   applyVolume() {
     const v = this.settings.muted ? 0 : Math.pow(clamp(this.settings.volume ?? 0.8, 0, 1), 1.6);
     if (this.engineOn) this.nodes.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
-    else this.els.forEach((a) => (a.volume = v));
-    if (this.live) this.live.volume = v;
+    else this.els.forEach((a) => { a.volume = v; a.muted = !!this.settings.muted; });
+    if (this.live) { this.live.volume = v; this.live.muted = !!this.settings.muted; }
     this.emit('volume');
   },
   applySpeed() { for (const a of this.els) { a.playbackRate = this.settings.speed || 1; a.preservesPitch = a.webkitPreservesPitch = this.settings.keepPitch !== false; } },
@@ -186,14 +205,19 @@ export const player = {
   jumpTo(p) { this.pos = p; this.load(this.ctxList[this.order[p]], true); this.emit('queue'); },
   peekNext() {
     if (this.repeat === 'one') return this.current;
+    while (this.upNext.length && !lib.track(this.upNext[0])) this.upNext.shift();
     if (this.upNext.length) return this.upNext[0];
     if (this.pos + 1 < this.order.length) return this.ctxList[this.order[this.pos + 1]];
     if (this.repeat === 'all' && this.order.length) return this.ctxList[this.order[0]];
     return null;
   },
-  advance(manual) { // move pointers and return next id
+  advance(manual) { // move pointers and return the next id that still exists
+    for (let i = 0; i < 200; i++) { const id = this._advance(manual); if (!id || lib.track(id)) return id; }
+    return null;
+  },
+  _advance(manual) {
     if (this.repeat === 'one' && !manual) return this.current;
-    if (this.upNext.length) { return this.upNext.shift(); }
+    if (this.upNext.length) { const id = this.upNext.shift(); this._nextFromUp = id; return id; }
     if (this.pos + 1 < this.order.length) { this.pos++; return this.ctxList[this.order[this.pos]]; }
     if (this.repeat === 'all' || (manual && this.order.length)) {
       if (this.shuffle && this.repeat === 'all') { this.buildOrder(this.order[0]); }
@@ -209,6 +233,7 @@ export const player = {
     this.load(id, true); this.emit('queue');
   },
   prev() {
+    if (this.time <= 3 && this.fromUpNext && lib.track(this.ctxList[this.order[this.pos]])) { this.load(this.ctxList[this.order[this.pos]], true); this.emit('queue'); return; }
     if (this.time > 3 || this.pos <= 0 && !this.upNext.length && this.repeat !== 'all') { this.seek(0); return; }
     if (this.pos > 0) this.pos--; else if (this.repeat === 'all') this.pos = this.order.length - 1;
     this.load(this.ctxList[this.order[this.pos]], true); this.emit('queue');
@@ -216,22 +241,24 @@ export const player = {
 
   async load(id, autoplay, startAt = 0) {
     const t = lib.track(id); if (!t) return;
-    this.cancelFade();
+    clearTimeout(this._errT); this.cancelFade();
+    this.fromUpNext = this._nextFromUp === id; this._nextFromUp = null; this._wasPaused = false;
     if (t.live) return this.loadLive(t, autoplay);
-    if (this.liveMode) { lib.track(this.current)?.stop?.(); this.live.pause(); this.live.srcObject = null; this.live.removeAttribute('src'); this.liveMode = false; }
+    if (this.liveMode) { (this.liveTrack || lib.track(this.current))?.stop?.(); this.liveTrack = null; this.live.pause(); this.live.srcObject = null; this.live.removeAttribute('src'); this.live.load(); this.liveMode = false; }
     if (this.loop && this.current !== id) this.clearLoop(true);
     this.current = id; this.countedPlay = false; this.loading = true;
     this.emit('track', t);
     let url, el = this.el;
-    if (this.preloaded?.id === id && this.preloaded.el === this.other && !this.other.error && this.other.getAttribute('src')) {
+    if (this.preloaded?.id === id && this.preloaded.srcSet && this.preloaded.el === this.other && !this.other.error && this.other.getAttribute('src')) {
       // swap to preloaded element: instant start
-      this.el.pause(); this.active = 1 - this.active; el = this.el;
+      this._swapping = true; this.el.pause(); this._swapping = false; this.active = 1 - this.active; el = this.el;
+      if (el.readyState >= 1) { lib.setDuration(id, el.duration); this.updatePosition(); }
       if (this.engineOn) { this.nodes.gains[this.active].gain.value = 1; this.nodes.gains[1 - this.active].gain.value = 0; }
       this.preloaded = null;
     } else {
       url = await this.P.audioURL(t);
       if (this.current !== id) return;
-      if (!url) { this.emit('error', t); return; }
+      if (!url) { this.loading = false; this.failed(t); return; }
       el.src = url;
       if (this.engineOn) { this.nodes.gains[this.active].gain.value = 1; this.nodes.gains[1 - this.active].gain.value = 0; }
     }
@@ -244,10 +271,11 @@ export const player = {
     this.preloaded = null;
   },
   async loadLive(t, autoplay) {
-    const prev = lib.track(this.current); if (prev?.live && prev !== t) prev.stop?.();
-    this.els.forEach((a) => a.pause());
-    this.liveMode = true; this.current = t.id; this.countedPlay = true; this.emit('track', t);
-    const L = this.live; L.srcObject = null; L.removeAttribute('src');
+    // stop the sound that is actually running (the registry may have swapped its object since)
+    const prev = this.liveTrack || lib.track(this.current); if (prev?.live && prev !== t) prev.stop?.();
+    clearTimeout(this._errT); this.els.forEach((a) => a.pause());
+    this.liveMode = true; this.liveTrack = t; this.current = t.id; this.countedPlay = true; this.emit('track', t);
+    const L = this.live; L.srcObject = null; L.removeAttribute('src'); L.load();
     if (t.stream) L.srcObject = await t.stream(); else L.src = t.url;
     this.applyVolume(); this.updateMediaSession();
     if (autoplay) this.play(); else this.emit('time');
@@ -257,16 +285,19 @@ export const player = {
     if (this._inGap) { clearTimeout(this._gapT); this._inGap = false; }
     if (!this.current) { const all = Object.keys(lib.db.tracks); if (all.length) this.playList(all, 0, { type: 'songs', label: 'All songs' }, { randomStart: true }); return; }
     if (this.ctx && this.ctx.state !== 'running') this.ctx.resume();
-    if (this.liveMode) { const t = this.track; t?.resume?.(); try { await this.live.play(); } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); } return; }
+    if (this.liveMode) { const t = this.liveTrack || this.track; t?.resume?.(); try { await this.live.play(); } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); } return; }
     try {
-      if (this.engineOn && this.settings.fadePause !== false) { const g = this.nodes.gains[this.active].gain; g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(0.0001, this.ctx.currentTime); g.exponentialRampToValueAtTime(1, this.ctx.currentTime + 0.18); }
+      if (this.engineOn && this.settings.fadePause !== false && this._wasPaused && this.el.currentTime > 0) { const g = this.nodes.gains[this.active].gain; g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(0.0001, this.ctx.currentTime); g.exponentialRampToValueAtTime(1, this.ctx.currentTime + 0.18); }
+      else if (this.engineOn && !this.fading) { const g = this.nodes.gains[this.active].gain; g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(1, this.ctx.currentTime); }
+      this._wasPaused = false;
       await this.el.play();
       if (!this.el.paused) this.setPlaying(true); // no 'play' event fires if the element never actually stopped
     } catch (e) { if (e.name !== 'AbortError') console.warn(e); this.setPlaying(false); }
   },
   pause() {
     if (this._inGap) { clearTimeout(this._gapT); this._inGap = false; this.setPlaying(false); return; }
-    if (this.liveMode) { this.live.pause(); this.track?.suspend?.(); return; }
+    if (this.liveMode) { this.live.pause(); (this.liveTrack || this.track)?.suspend?.(); return; }
+    this.cancelFade(); this._wasPaused = true;
     if (this.engineOn && this.settings.fadePause !== false && !this.el.paused) {
       const g = this.nodes.gains[this.active].gain; const el = this.el;
       g.cancelScheduledValues(this.ctx.currentTime); g.setValueAtTime(g.value || 1, this.ctx.currentTime); g.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 0.16);
@@ -294,23 +325,22 @@ export const player = {
       if (t > 30 && t < d - 60) rs[this.current] = Math.floor(t); else delete rs[this.current];
       lib.save();
     }
-    if (!d || this.loop) return; // while practicing a loop, never preload/crossfade away
+    if (this.sleep?.mode === 'track' && d && d - t < 0.6) { this.sleepFire(); return; }
+    if (!d || this.loop || this.sleep?.mode === 'track') return; // looping or stopping after this song: don't preload/crossfade away
     const remain = d - t;
     const xf = this.engineOn ? (this.settings.crossfade || 0) : 0;
     // preload the next track ~12s before the end for instant/gapless transitions
     if (remain < Math.max(12, xf + 4) && !this.preloaded && !this.fading && this.repeat !== 'one') this.preload();
     if (xf > 0 && remain <= xf && !this.fading && this.preloaded?.ready && this.playing) this.startCrossfade(xf, remain);
-    // sleep timer
-    if (this.sleep?.mode === 'track' && remain < 0.6) { this.sleepFire(); }
   },
   async preload() {
     const id = this.peekNext(); if (!id || id === this.current) return;
-    const t = lib.track(id); const other = this.other;
-    this.preloaded = { id, el: other, ready: false };
+    const t = lib.track(id); if (!t || t.live) return; const other = this.other;
+    this.preloaded = { id, el: other, ready: false, srcSet: false };
     const url = await this.P.audioURL(t);
     if (!url) { this.preloaded = { id: null }; return; }
     if (this.preloaded?.id !== id) return;
-    other.src = url; other.load(); other.playbackRate = this.settings.speed || 1;
+    other.src = url; other.load(); other.playbackRate = this.settings.speed || 1; this.preloaded.srcSet = true;
     other.addEventListener('canplay', () => { if (this.preloaded?.id === id) this.preloaded.ready = true; }, { once: true });
   },
   startCrossfade(xf, remain) {
@@ -322,14 +352,15 @@ export const player = {
     gF.cancelScheduledValues(now); gF.setValueAtTime(gF.value || 1, now); gF.linearRampToValueAtTime(0.0001, now + dur);
     const elFrom = this.els[from]; this.els[to].play().catch(() => {});
     this.active = to; this.current = id; this.countedPlay = false; this.preloaded = null;
-    this.emit('track', this.track); this.emit('queue'); this.updateMediaSession();
+    this.fromUpNext = this._nextFromUp === id; this._nextFromUp = null;
+    this.emit('track', this.track); this.emit('queue'); this.updateMediaSession(); this.updatePosition();
     this._fadeT = setTimeout(() => { elFrom.pause(); this.fading = false; }, dur * 1000 + 80);
   },
   cancelFade() { if (this.fading) { clearTimeout(this._fadeT); this.other.pause(); this.fading = false; } },
   onEnded() {
     if (this.sleep?.mode === 'track') { this.sleepFire(); return; }
     if (this.loop) { this.loopHit(); return; }
-    if (this.repeat === 'one') { this.seek(0); this.play(); return; }
+    if (this.repeat === 'one') { this.countedPlay = false; this.seek(0); this.play(); return; }
     this.next(false);
   },
 
@@ -353,7 +384,7 @@ export const player = {
   },
   clearLoop(quiet) { this.loop = null; clearInterval(this._loopIv); clearTimeout(this._gapT); this._loopIv = null; if (!quiet) this.emit('loop'); },
   // timeupdate only fires ~4×/s; check the loop end more often so repeats land on the beat
-  startLoopWatch() { if (this._loopIv) return; this._loopIv = setInterval(() => { const L = this.loop; if (!L) return this.clearLoop(true); if (this.playing && !this.el.paused && this.el.currentTime >= L.b - 0.02) this.loopHit(); }, 25); },
+  startLoopWatch() { if (this._loopIv) return; this._loopIv = setInterval(() => { const L = this.loop; if (!L) return this.clearLoop(true); if (document.hidden) return; if (this.playing && !this.el.paused && this.el.currentTime >= L.b - 0.02) this.loopHit(); }, 25); },
   loopHit() {
     const L = this.loop; if (!L || this._inGap) return;
     L.hits++;
@@ -397,12 +428,14 @@ export const player = {
     const ms = navigator.mediaSession; const H = (a, f) => { try { ms.setActionHandler(a, f); } catch {} };
     H('play', () => this.play()); H('pause', () => this.pause()); H('stop', () => this.pause());
     H('previoustrack', () => this.prev()); H('nexttrack', () => this.next());
-    H('seekbackward', (d) => this.seekBy(-(d.seekOffset || 10))); H('seekforward', (d) => this.seekBy(d.seekOffset || 10));
+    if (!isIOS) { H('seekbackward', (d) => this.seekBy(-(d.seekOffset || 10))); H('seekforward', (d) => this.seekBy(d.seekOffset || 10)); }
     H('seekto', (d) => this.seek(d.seekTime));
   },
   async updateMediaSession() {
     if (!('mediaSession' in navigator)) return; const t = this.track; if (!t) return;
+    const tok = this._msTok = (this._msTok || 0) + 1;
     const art = t.cover ? await this.P.coverURL(t.cover, false) : null;
+    if (tok !== this._msTok) return; // a newer song took over while the cover loaded
     try {
       navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || 'Unknown Artist', album: t.album || '', artwork: art ? [{ src: art, sizes: '640x640', type: 'image/jpeg' }] : [] });
     } catch {}

@@ -2,7 +2,7 @@
 import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS, VERSION, checkForUpdate, haptic, SWIPE_ACTIONS } from './core.js';
 import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce, cmpText } from './util.js';
 import { EQ_PRESETS } from './player.js';
-import { albumKeyOf, primaryArtist } from './library.js';
+import { albumKeyOf, primaryArtist, ARTIST_SEP_SRC } from './library.js';
 
 const R = app.renderers;
 import { renderListen, homeSoundsRow } from './listen.js';
@@ -69,8 +69,13 @@ export function trackList(ids, o = {}) {
   player.on(offPlayer);
   const offLib = (e, d) => { if (e === 'liked') { for (const [i, el] of rows) if (ids[i] === d) { const b = el.querySelector('.lk'); setLikeBtn(b, lib.isLiked(d)); } } };
   lib.on(offLib);
+  // positions in the playlist itself (the list shown may be sorted or filtered)
+  const srcIdx = (i) => (o.srcIndex ? o.srcIndex[i] : i);
+  let dead = false;
+  const destroy = () => { if (dead) return; dead = true; scroller.removeEventListener('scroll', onScroll); removeEventListener('resize', onScroll); player.listeners.delete(offPlayer); lib.listeners.delete(offLib); };
+  wrap.destroy = destroy; // lets a page rebuild its list (filter, sort) without leaving the old one listening
   const prevCleanup = app.cleanup;
-  app.cleanup = () => { prevCleanup?.(); scroller.removeEventListener('scroll', onScroll); removeEventListener('resize', onScroll); player.listeners.delete(offPlayer); lib.listeners.delete(offLib); };
+  app.cleanup = () => { prevCleanup?.(); destroy(); };
   requestAnimationFrame(paint); setTimeout(paint, 60);
 
   const idxOf = (e) => { const r = e.target.closest('.trow'); return r ? +r.dataset.i : -1; };
@@ -89,7 +94,7 @@ export function trackList(ids, o = {}) {
     const i = idxOf(e); if (i < 0) return;
     const t = e.target;
     if (t.closest('.lk')) { const id = ids[i]; lib.like(id); setLikeBtn(t.closest('.lk'), lib.isLiked(id)); if (lib.isLiked(id)) burst(t.closest('.lk')); return; }
-    if (t.closest('.mo')) { if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { el: t.closest('.mo'), right: true }, { playlist: o.playlistId, indices: sel.size > 1 ? [...sel] : [i] }); return; }
+    if (t.closest('.mo')) { if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { el: t.closest('.mo'), right: true }, { playlist: o.playlistId, indices: (sel.size > 1 ? [...sel] : [i]).map(srcIdx) }); return; }
     if (t.closest('.pl')) { play(i); return; }
     const art = t.closest('[data-artist]'); if (art) { go('artist', { key: art.dataset.artist }); return; }
     const al = t.closest('[data-album]'); if (al) { go('album', { key: al.dataset.album }); return; }
@@ -97,8 +102,8 @@ export function trackList(ids, o = {}) {
     setSel(i, e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one');
   });
   v.addEventListener('dblclick', (e) => { const i = idxOf(e); if (i >= 0 && !e.target.closest('button,a')) play(i); });
-  v.addEventListener('contextmenu', (e) => { const i = idxOf(e); if (i < 0) return; e.preventDefault(); if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { x: e.clientX, y: e.clientY }, { playlist: o.playlistId, indices: sel.size > 1 ? [...sel] : [i] }); });
-  longPress(v, (e) => { const i = idxOf(e); if (i >= 0) trackMenu([ids[i]], { x: 0, y: 0 }, { playlist: o.playlistId, indices: [i] }); });
+  v.addEventListener('contextmenu', (e) => { const i = idxOf(e); if (i < 0) return; e.preventDefault(); if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { x: e.clientX, y: e.clientY }, { playlist: o.playlistId, indices: (sel.size > 1 ? [...sel] : [i]).map(srcIdx) }); });
+  longPress(v, (e) => { const i = idxOf(e); if (i >= 0) trackMenu([ids[i]], { x: 0, y: 0 }, { playlist: o.playlistId, indices: [srcIdx(i)] }); });
   rowSwipes(v, (row) => ids[+row.dataset.i]);
   // drag & drop: to sidebar playlists, and reorder within playlists
   v.addEventListener('dragstart', (e) => {
@@ -159,7 +164,7 @@ function rowSwipes(v, idFor) {
   v.addEventListener('touchcancel', () => reset(true));
 }
 function artistLinks(t) {
-  const names = String(t.artist || 'Unknown Artist').split(/\s*(;|,| feat\.? | ft\.? | & )\s*/i);
+  const names = String(t.artist || 'Unknown Artist').split(new RegExp(ARTIST_SEP_SRC, 'i'));
   return names.map((n, i) => (i % 2 ? esc(n.trim() === ';' ? ',' : n) + ' ' : `<a data-artist="${esc(norm(n))}">${esc(n)}</a>`)).join('');
 }
 export function albumKey(t) { return albumKeyOf(t); }
@@ -344,8 +349,12 @@ function listPage({ title, ids, source, sortKeyName, kind, hero, extraActions, p
   const draw = () => {
     let list = sort ? sortIds(ids, sort) : ids;
     if (q) { const toks = norm(q).split(/\s+/); list = list.filter((id) => toks.every((t) => lib.idx.search.get(id)?.includes(t))); }
+    // map each shown row back to its position in the playlist (duplicates allowed)
+    let srcIndex = null;
+    if (playlistId && (q || sort)) { const at = new Map(); ids.forEach((id, i) => { if (!at.has(id)) at.set(id, []); at.get(id).push(i); }); srcIndex = list.map((id) => at.get(id)?.shift() ?? -1); }
+    holder.firstChild?.destroy?.();
     holder.innerHTML = '';
-    holder.appendChild(trackList(list, { source: { ...source, sorted: true }, sort, onSort: sort ? (k) => { if (!k) return; sort = { k, d: sort.k === k ? -sort.d : 1 }; S[sortKeyName] = sort; app.saveS(); draw(); } : null, playlistId, reorder: reorder && !q, added: !!addedAt || sort?.k === 'added', addedAt, numbers, album, emptyHTML }));
+    holder.appendChild(trackList(list, { source: { ...source, sorted: true }, sort, onSort: sort ? (k) => { if (!k) return; sort = { k, d: sort.k === k ? -sort.d : 1 }; S[sortKeyName] = sort; app.saveS(); draw(); } : null, playlistId, reorder: reorder && !q, srcIndex, added: !!addedAt || sort?.k === 'added', addedAt, numbers, album, emptyHTML }));
   };
   const grow = acts.querySelector('.grow');
   grow.after(filterBox((v) => { q = v; draw(); }));

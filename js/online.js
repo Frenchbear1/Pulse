@@ -4,7 +4,7 @@
 //   Cover art ..... iTunes artwork, then MusicBrainz + Cover Art Archive
 //   Radio ......... Radio Browser (radio-browser.info) — 50,000+ free internet radio stations
 import { app, lib } from './core.js';
-import { hashStr, norm } from './util.js';
+import { hashStr, norm, debounce } from './util.js';
 
 const UA = 'Pulse/1.5 (+https://github.com/Frenchbear1/Pulse)';
 const N = () => window.Neutralino;
@@ -113,7 +113,7 @@ export async function findCover(t) {
       // give it to every cover-less song on the same album
       const ak = norm((t.album || '') + '|' + artist);
       for (const x of Object.values(lib.db.tracks)) if (!x.cover && (x.id === t.id || (t.album && norm((x.album || '') + '|' + firstArtist(x.artist)) === ak))) { x.cover = key; lib.emit('cover', { id: x.id, key }); }
-      lib.save(); lib.reindex(true); return key;
+      lib.save(); (lib._coverReindex ||= debounce(() => lib.reindex(true), 1500))(); return key; // batched: a big "find covers" run stays smooth
     } catch { /* try next source */ }
   }
   return null;

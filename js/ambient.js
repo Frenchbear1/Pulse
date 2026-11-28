@@ -3,6 +3,9 @@
 // player, media keys, volume, output device) like any song, and runs forever.
 
 const SR = 44100;
+// Schedule the next random event, but hold off while the sound is paused (a suspended context) so events
+// don't pile up and all fire at once on resume.
+const tick = (ctx, fn, ms) => setTimeout(() => (ctx.state === 'closed' ? 0 : ctx.state === 'running' ? fn() : tick(ctx, fn, 400)), ms);
 function noiseBuffer(ctx, kind, secs = 8) {
   const n = ctx.sampleRate * secs, b = ctx.createBuffer(2, n, ctx.sampleRate);
   for (let ch = 0; ch < 2; ch++) {
@@ -36,15 +39,15 @@ const R = {
     const drops = ctx.createBiquadFilter(); drops.type = 'bandpass'; drops.frequency.value = 3200; drops.Q.value = 1.4; drops.connect(out);
     const pan = ctx.createStereoPanner(); pan.connect(drops);
     let alive = true;
-    const drip = () => { if (!alive) return; const t = ctx.currentTime; const s = ctx.createBufferSource(); s.buffer = white; const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.25 + Math.random() * 0.35, t + 0.004); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.06); pan.pan.setValueAtTime(Math.random() * 2 - 1, t); s.connect(g); g.connect(pan); s.start(t, Math.random() * 3, 0.15); setTimeout(drip, 25 + Math.random() * 140); };
+    const drip = () => { if (!alive) return; const t = ctx.currentTime; const s = ctx.createBufferSource(); s.buffer = white; const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.25 + Math.random() * 0.35, t + 0.004); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.06); pan.pan.setValueAtTime(Math.random() * 2 - 1, t); s.connect(g); g.connect(pan); s.start(t, Math.random() * 3, 0.15); tick(ctx, drip, 25 + Math.random() * 140); };
     drip(); return { stop() { alive = false; } };
   },
   storm(ctx, out) {
     const r = R.rain(ctx, out); const brown = noiseBuffer(ctx, 'brown');
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 120; lp.connect(out);
     let alive = true;
-    const thunder = () => { if (!alive) return; const t = ctx.currentTime; const s = ctx.createBufferSource(); s.buffer = brown; const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1.4, t + 0.6 + Math.random()); g.gain.exponentialRampToValueAtTime(0.001, t + 6 + Math.random() * 4); s.connect(g); g.connect(lp); s.start(t, Math.random() * 3); setTimeout(thunder, 18000 + Math.random() * 30000); };
-    setTimeout(thunder, 6000); return { stop() { alive = false; r.stop(); } };
+    const thunder = () => { if (!alive) return; const t = ctx.currentTime; const s = ctx.createBufferSource(); s.buffer = brown; const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1.4, t + 0.6 + Math.random()); g.gain.exponentialRampToValueAtTime(0.001, t + 6 + Math.random() * 4); s.connect(g); g.connect(lp); s.start(t, Math.random() * 3); tick(ctx, thunder, 18000 + Math.random() * 30000); };
+    tick(ctx, thunder, 6000); return { stop() { alive = false; r.stop(); } };
   },
   ocean(ctx, out) {
     const b = noiseBuffer(ctx, 'brown'), p = noiseBuffer(ctx, 'pink');
@@ -54,7 +57,7 @@ const R = {
     const wave = () => { if (!alive) return; const t = ctx.currentTime, len = 7 + Math.random() * 6, peak = 0.6 + Math.random() * 0.5;
       for (const g of [surf.g.gain, body.g.gain]) { g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(peak, t + len * 0.45); g.linearRampToValueAtTime(0.12, t + len); }
       lp.frequency.cancelScheduledValues(t); lp.frequency.setValueAtTime(lp.frequency.value, t); lp.frequency.linearRampToValueAtTime(1400 + Math.random() * 900, t + len * 0.5); lp.frequency.linearRampToValueAtTime(350, t + len);
-      setTimeout(wave, len * 1000 - 200); };
+      tick(ctx, wave, len * 1000 - 200); };
     wave(); return { stop() { alive = false; } };
   },
   creek(ctx, out) {
@@ -69,7 +72,7 @@ const R = {
     let alive = true;
     const crack = () => { if (!alive) return; const t = ctx.currentTime, n = Math.random() < 0.25 ? 3 : 1;
       for (let k = 0; k < n; k++) { const s = ctx.createBufferSource(); s.buffer = w; const g = ctx.createGain(); const tt = t + k * 0.03; g.gain.setValueAtTime(0.6 * Math.random() + 0.2, tt); g.gain.exponentialRampToValueAtTime(0.001, tt + 0.02 + Math.random() * 0.03); s.connect(g); g.connect(hp); s.start(tt, Math.random() * 2, 0.08); }
-      setTimeout(crack, 60 + Math.random() * 600); };
+      tick(ctx, crack, 60 + Math.random() * 600); };
     crack(); return { stop() { alive = false; } };
   },
   brown(ctx, out) { const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.connect(out); loop(ctx, noiseBuffer(ctx, 'brown'), lp, 1); return { stop() {} }; },
@@ -90,7 +93,7 @@ const R = {
     // vinyl
     const crackle = ctx.createBiquadFilter(); crackle.type = 'highpass'; crackle.frequency.value = 2500; crackle.connect(out); loop(ctx, noiseBuffer(ctx, 'pink'), crackle, 0.035);
     const hiss = noiseBuffer(ctx, 'white', 2); let alive = true;
-    const pop = () => { if (!alive) return; const t = ctx.currentTime; const s = ctx.createBufferSource(); s.buffer = hiss; const g = ctx.createGain(); g.gain.setValueAtTime(0.15 * Math.random(), t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.01); s.connect(g); g.connect(crackle); s.start(t, Math.random(), 0.02); setTimeout(pop, 80 + Math.random() * 500); }; pop();
+    const pop = () => { if (!alive) return; const t = ctx.currentTime; const s = ctx.createBufferSource(); s.buffer = hiss; const g = ctx.createGain(); g.gain.setValueAtTime(0.15 * Math.random(), t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.01); s.connect(g); g.connect(crackle); s.start(t, Math.random(), 0.02); tick(ctx, pop, 80 + Math.random() * 500); }; pop();
     const keys = (t, midi, dur, vel = 0.12) => { const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(); o1.type = 'sine'; o2.type = 'triangle'; o1.frequency.value = mtof(midi); o2.frequency.value = mtof(midi) * 1.002; const g = ctx.createGain(); const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(2400, t); f.frequency.exponentialRampToValueAtTime(700, t + dur);
       g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vel, t + 0.015); g.gain.exponentialRampToValueAtTime(vel * 0.4, t + 0.4); g.gain.exponentialRampToValueAtTime(0.0008, t + dur + 0.6);
       o1.connect(f); o2.connect(f); f.connect(g); g.connect(master); g.connect(verb); o1.start(t); o2.start(t); o1.stop(t + dur + 0.7); o2.stop(t + dur + 0.7); };
@@ -131,7 +134,7 @@ const R = {
       const notes = [0, 7, 12, scale[Math.floor(Math.random() * 5)] + 12, scale[Math.floor(Math.random() * 5)] + 19];
       for (const n of notes) { const o = ctx.createOscillator(); o.type = Math.random() < 0.5 ? 'sine' : 'triangle'; o.frequency.value = mtof(root + n); o.detune.value = Math.random() * 10 - 5; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900; const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + len * 0.4); g.gain.linearRampToValueAtTime(0, t + len * 1.3); o.connect(f); f.connect(g); g.connect(dry); g.connect(verb); o.start(t); o.stop(t + len * 1.35); }
       if (Math.random() < 0.4) root = 45 + [0, 2, 5, 7][Math.floor(Math.random() * 4)];
-      setTimeout(chord, len * 700); };
+      tick(ctx, chord, len * 700); };
     chord(); return { stop() { alive = false; } };
   }
 };

@@ -23,8 +23,9 @@ async function getLyrics(t) {
   let text = null, src = '';
   if (t.lrc) { try { text = await app.P.readLrc(t); src = 'Synced lyrics (.lrc)'; } catch {} }
   if (!text && lib.db.lyrics[t.id]) { text = lib.db.lyrics[t.id]; src = lib.db.lyricSrc?.[t.id] === 'LRCLIB' ? 'Lyrics from LRCLIB' : lib.db.lyricSrc?.[t.id] === 'ai' ? 'Transcribed on this device (AI)' : 'Embedded lyrics'; }
-  if (!text && !t.virtual) { text = await fetchLyrics(t).catch(() => null); if (text) src = 'Lyrics from LRCLIB'; }
-  if (!text) { lyricCache.set(t.id, null); return null; }
+  let netFail = false;
+  if (!text && !t.virtual) { text = await fetchLyrics(t).catch(() => { netFail = true; return null; }); if (text) src = 'Lyrics from LRCLIB'; }
+  if (!text) { if (!netFail && navigator.onLine !== false) lyricCache.set(t.id, null); return null; } // offline: try again later
   const synced = /\[\d{1,3}:\d{1,2}/.test(text) ? parseLRC(text) : null;
   const r = { synced: synced && synced.length > 2 ? synced : null, plain: text.replace(/\[[^\]]*\]/g, '').trim(), src };
   lyricCache.set(t.id, r); return r;
@@ -111,7 +112,7 @@ function infoEl() {
   q('[data-mo]').onclick = (e) => trackMenu([t.id], { el: e.currentTarget });
   q('[data-q]') && (q('[data-q]').onclick = () => openPanel('queue'));
   q('[data-full]').onclick = () => openNP(true);
-  el.addEventListener('click', (e) => { const r = e.target.closest('.qrow'); if (r) { const i = player.upNext.indexOf(r.dataset.id); if (i >= 0) { player.upNext.splice(i, 1); player.load(r.dataset.id, true); player.emit('queue'); } else player.next(); } });
+  el.addEventListener('click', (e) => { const r = e.target.closest('.qrow'); if (r) { const i = player.upNext.indexOf(r.dataset.id); if (i >= 0) { player.upNext.splice(i, 1); player.load(r.dataset.id, true); player.emit('queue'); } else { const u = player.upcomingContext(400).find((x) => x.id === r.dataset.id); u ? player.jumpTo(u.p) : player.next(); } } });
   requestAnimationFrame(() => marquee(q('.marq')));
   if (!t.virtual) onlineInfo(t, el);
   return el;
@@ -208,10 +209,13 @@ export async function openPanel(tab) {
 }
 export function togglePanel() { document.body.classList.contains('panel-open') ? closePanel() : openPanel(); }
 export function closePanel() { app.S.panelOpen = false; app.saveS(); document.body.classList.remove('panel-open'); $('#bPanel')?.classList.remove('on'); panelLyrics = null; }
+let panelTok = 0, npTok = 0;
 export async function drawPanel() {
   const tab = app.S.panel || 'info'; if (!document.body.classList.contains('panel-open')) return;
   const body = $('#panelBody'); const st = body.scrollTop;
+  const tok = ++panelTok, cur = player.current;
   const el = tab === 'queue' ? queueEl() : tab === 'lyrics' ? await lyricsEl(player.track) : tab === 'devices' ? await devicesEl() : infoEl();
+  if (tok !== panelTok || (app.S.panel || 'info') !== tab || (tab === 'lyrics' && player.current !== cur)) return; // a newer draw (song or tab change) won
   body.innerHTML = ''; body.appendChild(el); panelLyrics = tab === 'lyrics' ? el : null;
   if (tab === 'queue') body.scrollTop = st;
 }
@@ -231,7 +235,9 @@ export async function npRight(tab) {
   const r = $('#npRight');
   if (npTab === tab || !tab) { npTab = null; r.innerHTML = ''; npLyr = null; $$('[data-np]').forEach((b) => b.classList.remove('on')); return; }
   npTab = tab; $$('[data-np]').forEach((b) => b.classList.toggle('on', b.dataset.np === tab));
+  const tok = ++npTok, cur = player.current;
   const el = tab === 'lyrics' ? await lyricsEl(player.track) : tab === 'devices' ? await devicesEl() : queueEl(true);
+  if (tok !== npTok || npTab !== tab || (tab === 'lyrics' && player.current !== cur)) return;
   r.innerHTML = ''; r.appendChild(el); npLyr = tab === 'lyrics' ? el : null;
 }
 let lastNPTrack = null;
@@ -296,14 +302,17 @@ let vizRaf = 0;
 function startViz() {
   const c = $('#viz'); const x = c.getContext('2d'); const an = player.analyser(); if (!an) return;
   const buf = new Uint8Array(an.frequencyBinCount); const wave = new Uint8Array(an.fftSize);
-  let smooth = new Float32Array(64);
+  let smooth = new Float32Array(64), acc = '', fr = 0, idle = false;
   const loop = () => {
     vizRaf = requestAnimationFrame(loop);
-    const mode = app.S.viz; if (mode === 'off' || !player.playing && mode !== 'orb') { x.clearRect(0, 0, c.width, c.height); if (mode === 'off') return; }
+    if (document.hidden) return;
+    const mode = app.S.viz;
+    if (mode === 'off' || !player.playing && mode !== 'orb') { if (!idle) { x.clearRect(0, 0, c.width, c.height); idle = true; } return; } // nothing to draw: stay cheap
+    idle = false;
     const dpr = Math.min(devicePixelRatio, 2); const W = c.clientWidth * dpr, H = c.clientHeight * dpr;
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     x.clearRect(0, 0, W, H);
-    const acc = getComputedStyle(document.documentElement).getPropertyValue('--acc-rgb').trim() || '255,255,255';
+    if (!acc || ++fr % 60 === 0) acc = getComputedStyle(document.documentElement).getPropertyValue('--acc-rgb').trim() || '255,255,255'; // the accent follows the cover; re-read about once a second
     if (mode === 'bars') {
       an.getByteFrequencyData(buf); const n = 64; const bw = W / n;
       for (let i = 0; i < n; i++) {

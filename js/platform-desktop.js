@@ -120,14 +120,26 @@ public static class PulseWin {
     on(fn) { listeners.add(fn); },
     emit(type, data) { listeners.forEach((f) => f(type, data)); },
 
+    // Missing file = first run (null). A damaged file falls back to the last good copy (library.bak);
+    // if that fails too it throws, so the app opens read-only instead of saving an empty library over it.
     async loadDB() {
-      try { return JSON.parse(await N().filesystem.readFile(dataDir + '/library.json')); } catch { return null; }
+      const fs = N().filesystem, main = dataDir + '/library.json', bak = dataDir + '/library.bak';
+      const exists = async (f) => { try { await fs.getStats(f); return true; } catch { return false; } };
+      const read = async (f) => JSON.parse(await fs.readFile(f));
+      if (await exists(main)) { try { return await read(main); } catch (e) { console.warn('library.json unreadable, trying backup', e); } }
+      if (await exists(bak)) return read(bak);
+      if (await exists(main)) throw new Error('library.json is damaged');
+      return null;
     },
     async saveDB(db) {
       if (window.PULSE_COMPANION) return;
-      const tmp = dataDir + '/library.tmp';
-      await N().filesystem.writeFile(tmp, JSON.stringify(db));
-      try { await N().filesystem.move(tmp, dataDir + '/library.json'); } catch { await N().filesystem.writeFile(dataDir + '/library.json', JSON.stringify(db)); }
+      // write a temp file, keep the previous library as library.bak, then swap the new one in
+      const fs = N().filesystem, main = dataDir + '/library.json', bak = dataDir + '/library.bak', tmp = dataDir + '/library.' + Date.now().toString(36) + '.tmp';
+      await fs.writeFile(tmp, JSON.stringify(db));
+      try { await fs.remove(bak); } catch {}
+      try { await fs.move(main, bak); } catch {}
+      try { await fs.move(tmp, main); }
+      catch (e) { try { await fs.copy(bak, main); } catch {} try { await fs.remove(tmp); } catch {} throw e; }
     },
 
     // ---- roots ----

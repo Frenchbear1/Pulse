@@ -157,7 +157,8 @@ export function markNav() {
 
 // ---------- layer: menus / sheets / modals ----------
 export function closeLayer() {
-  const l = $('#layer'); l.innerHTML = '';
+  const l = $('#layer'); const done = l.querySelector('.modal')?._onClose; l.innerHTML = '';
+  done?.(); // a modal closed by its scrim, Esc or another layer still answers whoever is waiting on it
   if (refreshPending) { refreshPending = false; refresh(); }
 }
 export function menu(items, at, opts = {}) {
@@ -220,15 +221,17 @@ export function modal(html, onMount) {
 export function prompt(title, value = '', placeholder = '') {
   return new Promise((res) => {
     const m = modal(`<h2>${esc(title)}</h2><input class="inp" autofocus value="${esc(value)}" placeholder="${esc(placeholder)}"><div class="row"><button class="pill" data-close>Cancel</button><button class="pill solid" id="ok">Save</button></div>`);
-    const inp = m.querySelector('input'); const ok = () => { const v = inp.value.trim(); closeLayer(); res(v || null); };
+    m._onClose = () => res(null);
+    const inp = m.querySelector('input'); const ok = () => { const v = inp.value.trim(); res(v || null); closeLayer(); };
     m.querySelector('#ok').onclick = ok; inp.onkeydown = (e) => { if (e.key === 'Enter') ok(); if (e.key === 'Escape') { closeLayer(); res(null); } };
   });
 }
 export function confirmBox(title, text, okLabel = 'Delete', danger = true) {
   return new Promise((res) => {
     const m = modal(`<h2>${esc(title)}</h2><p style="opacity:.75;margin:0">${esc(text)}</p><div class="row"><button class="pill" id="no">Cancel</button><button class="pill solid" id="yes" ${danger ? 'style="background:#e5484d;color:#fff"' : ''}>${esc(okLabel)}</button></div>`);
-    m.querySelector('#no').onclick = () => { closeLayer(); res(false); };
-    m.querySelector('#yes').onclick = () => { closeLayer(); res(true); };
+    m._onClose = () => res(false);
+    m.querySelector('#no').onclick = () => { res(false); closeLayer(); };
+    m.querySelector('#yes').onclick = () => { res(true); closeLayer(); };
   });
 }
 export function pickImage() {
