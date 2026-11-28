@@ -350,7 +350,9 @@ export function soundPanel() {
     <div class="opt"><div class="l"><b>Keep pitch when changing speed</b></div><div class="r"><div class="tog ${S.keepPitch ? 'on' : ''}" id="pitch"></div></div></div>
     <div class="opt"><div class="l"><b>Crossfade</b></div><div class="r"><input type="range" min="0" max="12" step="1" value="${S.crossfade}" id="xf"><span class="val" id="xfV">${S.crossfade ? S.crossfade + 's' : 'Off'}</span></div></div>
     <div class="opt"><div class="l"><b>Volume leveler</b><small>Evens out loudness between songs</small></div><div class="r"><div class="tog ${S.leveler ? 'on' : ''}" id="lev"></div></div></div>
-    <div class="opt"><div class="l"><b>Sleep timer</b><small id="slpV">${sleepLabel()}</small></div><div class="r"><button class="pill" id="slp">${ico('moon')}Set</button></div></div>`);
+    <div class="opt"><div class="l"><b>Sleep timer</b><small id="slpV">${sleepLabel()}</small></div><div class="r"><button class="pill" id="slp">${ico('moon')}Set</button></div></div>
+    <div class="opt"><div class="l"><b>Practice</b><small>Loop a part, slow it down, speed trainer</small></div><div class="r"><button class="pill" id="prac">${ico('loop')}Open</button></div></div>`);
+  m.querySelector('#prac').onclick = () => { closeLayer(); import('./practice.js').then((x) => x.practicePanel()); };
   const save = () => { app.saveS(); };
   m.querySelector('[data-eng]')?.addEventListener('click', () => { S.engine = 'on'; player.enableEngine(); save(); closeLayer(); soundPanel(); });
   const eqOn = m.querySelector('#eqOn'); eqOn.onclick = () => { S.eqOn = !S.eqOn; eqOn.classList.toggle('on', S.eqOn); player.applyEQ(); save(); };

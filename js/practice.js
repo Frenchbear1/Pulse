@@ -22,14 +22,14 @@ export function practicePanel() {
     </div>
     <div class="pr-nudge"><span>Nudge</span><button class="ib sm" data-n="a:-0.1">A −</button><button class="ib sm" data-n="a:0.1">A +</button><button class="ib sm" data-n="b:-0.1">B −</button><button class="ib sm" data-n="b:0.1">B +</button><span class="pr-hits" id="prHits"></span></div>
     <div class="opt"><div class="l"><b>Pause between repeats</b><small>Time to reset your hands</small></div><div class="r"><div class="seg" id="prGap">${[0, 1, 2, 4].map((g) => `<button data-g="${g}" class="${(player.loop?.gap ?? S.loopGap ?? 0) === g ? 'on' : ''}">${g ? g + ' s' : 'Off'}</button>`).join('')}</div></div></div>
-    <div class="opt"><div class="l"><b>Speed</b><small>Double-click to reset</small></div><div class="r"><input type="range" min="0.5" max="1.5" step="0.05" value="${S.speed}" id="prSpd"><span class="val" id="prSpdV">${Math.round(S.speed * 100)}%</span></div></div>
+    <div class="opt"><div class="l"><b>Speed</b><small>${app.isMobile ? 'Tap the number to reset' : 'Double-click or tap the number to reset'}</small></div><div class="r"><input type="range" min="0.5" max="1.5" step="0.05" value="${S.speed}" id="prSpd"><span class="val" id="prSpdV" style="cursor:pointer" title="Back to 100%">${Math.round(S.speed * 100)}%</span></div></div>
     <div class="opt"><div class="l"><b>Keep pitch</b><small>Slower without sounding lower</small></div><div class="r"><div class="tog ${S.keepPitch ? 'on' : ''}" id="prPitch"></div></div></div>
     <div class="opt"><div class="l"><b>Speed trainer</b><small id="prTrDesc">Starts slow and speeds up as you nail each repeat</small></div><div class="r">
       <select class="inp" id="prTrFrom" style="width:84px;height:34px">${[50, 60, 70, 75, 80, 90].map((v) => `<option value="${v}" ${v === (S.trainer?.from ?? 70) ? 'selected' : ''}>${v}%</option>`).join('')}</select>
       <select class="inp" id="prTrStep" style="width:84px;height:34px">${[2, 5, 10].map((v) => `<option value="${v}" ${v === (S.trainer?.step ?? 5) ? 'selected' : ''}>+${v}%</option>`).join('')}</select>
       <select class="inp" id="prTrEvery" style="width:104px;height:34px">${[1, 2, 3, 4].map((v) => `<option value="${v}" ${v === (S.trainer?.every ?? 2) ? 'selected' : ''}>every ${v}×</option>`).join('')}</select>
       <div class="tog ${player.loop?.trainer ? 'on' : ''}" id="prTr"></div></div></div>
-    <div class="opt" style="border:0;padding-bottom:4px"><div class="l"><b>Bookmarks</b><small>Press B anytime to drop one</small></div><div class="r"><button class="pill" data-a="mark">${ico('flag')}Add here</button></div></div>
+    <div class="opt" style="border:0;padding-bottom:4px"><div class="l"><b>Bookmarks</b><small>${app.isMobile ? 'Mark the parts you are working on' : 'Press B anytime to drop one'}</small></div><div class="r"><button class="pill" data-a="mark">${ico('flag')}Add here</button></div></div>
     <div class="pr-mlist" id="prMarks"></div>`);
   m.classList.add('practice');
   const tl = m.querySelector('#prTl');
@@ -82,7 +82,8 @@ export function practicePanel() {
   });
   const spd = m.querySelector('#prSpd');
   spd.addEventListener('input', () => { S.speed = +spd.value; player.applySpeed(); app.saveS(); draw(); });
-  spd.addEventListener('dblclick', () => { S.speed = 1; player.applySpeed(); app.saveS(); draw(); });
+  const reset = () => { S.speed = 1; player.applySpeed(); app.saveS(); draw(); };
+  spd.addEventListener('dblclick', reset); m.querySelector('#prSpdV').addEventListener('click', reset);
   const pitch = m.querySelector('#prPitch'); pitch.onclick = () => { S.keepPitch = !S.keepPitch; pitch.classList.toggle('on', S.keepPitch); player.applySpeed(); app.saveS(); };
   const tr = m.querySelector('#prTr');
   const readTr = () => ({ from: +m.querySelector('#prTrFrom').value, step: +m.querySelector('#prTrStep').value, every: +m.querySelector('#prTrEvery').value });
