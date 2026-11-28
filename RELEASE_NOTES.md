@@ -4,6 +4,14 @@
 
 Windows may show "Windows protected your PC" because the app isn't code-signed — click **More info → Run anyway**.
 
+## What's new in 1.3.1
+- **Fixed clicks going through Pulse to apps behind it, and the top bar freezing after maximize.** Neutralino made the see-through window a "layered" window that Windows hit-tested against an empty surface. Pulse now switches it to DWM transparency at launch, so every pixel of Pulse is Pulse (and Windows 11 can blur what's behind the see-through parts). Status shows in Settings → Window.
+- F11 toggles full screen
+- Clicking the cover in the player bar opens Now Playing in the side panel next to Queue, Lyrics and Devices; the ⤢ button opens the full-screen player
+- Sidebar collapse/expand animates cleanly instead of jumping
+- Numbers simply fade to the new digit (no rolling), and the colon in times is back in place
+- "Ctrl K" in the search bar only shows on hover
+
 ## What's new in 1.3.0
 - **Devices panel** (speaker button in the player bar): send Pulse to any Bluetooth headphones or speaker, your TV/monitor over HDMI, USB headsets — without changing the Windows default. It remembers your pick, pauses if the device disconnects and switches back when it reconnects. On iPhone it opens the AirPlay picker.
 - **Library layouts like Spotify**: search your library, a "Recents" sort button (Recents, Recently added, Alphabetical, Most played, Custom order) and four views — compact list, list, grid, large grid

@@ -158,7 +158,7 @@ export function watchDevices() {
 }
 
 // Wide windows get the side-panel view; narrow ones (and the full-screen button) get the full-screen player
-export function npUsesPanel() { const m = app.S.npView || 'auto'; return !app.isMobile && (m === 'panel' || (m === 'auto' && innerWidth >= 1100)); }
+export function npUsesPanel() { return !app.isMobile && (app.S.npView || 'panel') !== 'full'; }
 export function showNowPlaying() { if (npUsesPanel()) openPanel('info'); else openNP(true); }
 
 // ---------------- Side panel ----------------

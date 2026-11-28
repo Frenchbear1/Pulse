@@ -116,10 +116,9 @@ body.web #titlebar { padding-right: 14px; }
 .scan-pill .refresh { display: none; margin-left: 2px; padding: 3px 9px; border-radius: 999px; background: rgba(var(--acc-rgb), .2); color: var(--tx); font-weight: 650; font-size: 11.5px; }
 .scan-pill.has-new .refresh { display: inline-block; }
 /* rolling digits */
-.flipnum { display: inline-flex; font-variant-numeric: tabular-nums; }
-.flipnum span { min-width: 0 !important; padding: 0 !important; margin: 0 !important; width: auto; }
-.flipnum .reel { display: inline-block; height: 1.25em; line-height: 1.25em; overflow: hidden; vertical-align: bottom; }
-.flipnum .strip { display: block; white-space: pre; text-align: center; transition: transform .55s cubic-bezier(.2,.9,.25,1); }
+.flipnum { font-variant-numeric: tabular-nums; white-space: pre; }
+.flipnum .fd { animation: digitIn .22s ease-out; }
+@keyframes digitIn { from { opacity: 0; } to { opacity: 1; } }
 .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(var(--acc-rgb), .25); border-top-color: rgb(var(--acc-rgb)); animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pop { from { transform: scale(.8); opacity: 0; } }
@@ -408,7 +407,7 @@ body.blur-lyrics .lyrics.synced p:not(.on) { filter: blur(1.4px); }
 .pp:active { transform: scale(.9); }
 .pp.is-playing { border-radius: 50%; }
 .seek-row { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 680px; color: var(--tx3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.seek-row > span { min-width: 38px; text-align: center; justify-content: center; }
+.seek-row > span { min-width: 38px; text-align: center; }
 .slider { position: relative; flex: 1; height: 18px; cursor: pointer; touch-action: none; --v: 0; --b: 0; }
 .slider::before, .slider .buf, .slider .fill { position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; transition: height .15s, margin .15s; }
 .slider::before { content: ""; right: 0; background: var(--s3); }
@@ -967,3 +966,11 @@ body.side-mini #sideTools { display: none; }
 .page .lay-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); } .page .lay-big { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .page .lay-grid .lcard small { display: block; }
 .panel-tabs { gap: 2px; padding-right: 8px; } .panel-tabs button[data-ptab] { padding: 0 10px; font-size: 12.5px; flex: none; } .panel-tabs .ib { flex: none; }
+
+/* search shortcut hint only on hover */
+.tb-search kbd { opacity: 0; transition: opacity .2s; }
+.tb-search:hover kbd { opacity: 1; } .tb-search:focus-within kbd { opacity: 0; }
+/* sidebar collapse/expand: fade contents, animate width, fade back in */
+#side { overflow: hidden; }
+#side > * { transition: opacity .14s ease; }
+body.side-anim #side > * { opacity: 0; }

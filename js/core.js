@@ -11,10 +11,10 @@ export const DEFAULTS = {
   sideMini: false, panel: null, viz: 'bars', blurLyrics: false, lastView: null, songsSort: { k: 'added', d: -1 }, albumSort: 'name', gridSize: 172,
   mini: { layout: 'bar', opacity: 0.9, blur: 40, art: true, onTop: true, progress: true, times: true, radius: 14 },
   closeToTray: false, rescanOnStart: true, watch: true, showSplash: true,
-  npView: 'auto',
+  npView: 'panel',
   gest: { right: 'queue', left: 'like', miniSwipe: true, miniUp: true, npDown: true, artSwipe: true, artDouble: true, haptics: true }
 };
-export const VERSION = '1.3.0';
+export const VERSION = '1.3.1';
 export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
@@ -280,26 +280,20 @@ export function marquee(wrap) {
 }
 
 // Rolling digit counters: each digit is a little reel that glides to its new value.
+// Numbers: each changed digit quickly fades in where the old one was (no reels, so layout and the colon never move)
 export function flip(el, text) {
   if (!el) return; text = String(text);
   if (el._flip === text) return;
   const prev = el._flip; el._flip = text;
-  if (app.S?.anim === 'off') { el.textContent = text; el._reels = null; return; }
-  const shape = (t) => t.replace(/\d/g, '0');
-  if (!el._reels || prev == null || shape(prev) !== shape(text)) {
+  if (prev == null || app.S?.anim === 'off' || prev.length !== text.length || !el._cells) {
     el.classList.add('flipnum'); el.textContent = '';
-    el._reels = [...text].map((ch) => {
-      if (!/\d/.test(ch)) { const s = document.createElement('span'); s.textContent = ch; el.appendChild(s); return null; }
-      const r = document.createElement('span'); r.className = 'reel';
-      const st = document.createElement('span'); st.className = 'strip'; st.textContent = '0123456789'.split('').join('\n');
-      r.appendChild(st); el.appendChild(r);
-      st.style.transform = `translateY(${-(prev ? 0 : +ch) * 10}%)`; return st;
-    });
-    if (prev == null) { [...text].forEach((ch, i) => { if (el._reels[i]) el._reels[i].style.transform = `translateY(${-ch * 10}%)`; }); return; }
-    requestAnimationFrame(() => [...text].forEach((ch, i) => { if (el._reels[i]) el._reels[i].style.transform = `translateY(${-ch * 10}%)`; }));
+    el._cells = [...text].map((ch) => { const c = document.createElement('span'); c.textContent = ch; el.appendChild(c); return c; });
     return;
   }
-  [...text].forEach((ch, i) => { const st = el._reels[i]; if (st) st.style.transform = `translateY(${-ch * 10}%)`; });
+  [...text].forEach((ch, i) => {
+    const c = el._cells[i]; if (c.textContent === ch) return;
+    c.textContent = ch; c.classList.remove('fd'); void c.offsetWidth; c.classList.add('fd');
+  });
 }
 
 // Slider helper (pointer drag, keyboard)

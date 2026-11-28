@@ -4,7 +4,7 @@
   "applicationName": "Pulse",
   "author": "David LaBarre",
   "description": "Pulse",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "defaultMode": "window",
   "port": 41730,
   "documentRoot": "/resources/",
