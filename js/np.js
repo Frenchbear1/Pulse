@@ -3,6 +3,7 @@ import { app, lib, player, toast, go, menu, modal, closeLayer, coverImg, hydrate
 import { $, $$, esc, h, fmtTime, clamp, debounce } from './util.js';
 import { EQ_FREQS, EQ_PRESETS } from './player.js';
 import { trackMenu, albumKey, longPress } from './views.js';
+import { companionSend, openCompanion, closeCompanion, pushState, host } from './companion.js';
 
 // ---------------- LRC lyrics ----------------
 function parseLRC(text) {
@@ -163,18 +164,20 @@ export function showNowPlaying() { if (npUsesPanel()) openPanel('info'); else op
 
 // ---------------- Side panel ----------------
 let panelLyrics = null;
+// Side panel: an embedded card next to the main view. One bar button shows/hides it; tabs switch inside.
 export async function openPanel(tab) {
-  const S = app.S;
+  const S = app.S; tab = tab || S.panel || 'info';
   if (app.isMobile) { openNP(); npRight(tab === 'info' ? 'queue' : tab); return; }
-  if (S.panel === tab && document.body.classList.contains('panel-open') && tab) { closePanel(); return; }
-  S.panel = tab; app.saveS(); document.body.classList.add('panel-open');
+  const same = S.panel === tab && document.body.classList.contains('panel-open');
+  S.panel = tab; S.panelOpen = true; app.saveS(); document.body.classList.add('panel-open');
   $$('[data-ptab]').forEach((b) => b.classList.toggle('on', b.dataset.ptab === tab));
-  $('#bQueue').classList.toggle('on', tab === 'queue'); $('#bLyrics').classList.toggle('on', tab === 'lyrics'); $('#bDevices').classList.toggle('on', tab === 'devices');
-  await drawPanel();
+  $('#bPanel')?.classList.add('on');
+  if (!same) await drawPanel();
 }
-export function closePanel() { app.S.panel = null; app.saveS(); document.body.classList.remove('panel-open'); $('#bQueue').classList.remove('on'); $('#bLyrics').classList.remove('on'); $('#bDevices').classList.remove('on'); panelLyrics = null; }
+export function togglePanel() { document.body.classList.contains('panel-open') ? closePanel() : openPanel(); }
+export function closePanel() { app.S.panelOpen = false; app.saveS(); document.body.classList.remove('panel-open'); $('#bPanel')?.classList.remove('on'); panelLyrics = null; }
 export async function drawPanel() {
-  const tab = app.S.panel; if (!tab || !document.body.classList.contains('panel-open')) return;
+  const tab = app.S.panel || 'info'; if (!document.body.classList.contains('panel-open')) return;
   const body = $('#panelBody'); const st = body.scrollTop;
   const el = tab === 'queue' ? queueEl() : tab === 'lyrics' ? await lyricsEl(player.track) : tab === 'devices' ? await devicesEl() : infoEl();
   body.innerHTML = ''; body.appendChild(el); panelLyrics = tab === 'lyrics' ? el : null;
@@ -330,21 +333,43 @@ export function sleepMenu(at) {
 }
 
 // ---------------- Mini player (desktop) ----------------
-const MINI_SIZES = { bar: [420, 104], card: [300, 440], square: [270, 270], strip: [440, 46], art: [220, 220] };
+export const MINI_SIZES = { bar: [420, 104], card: [300, 440], square: [270, 270], strip: [440, 46], art: [220, 220] };
 let saved = null;
+// Keep the mini player fully on the screen it's on (after dragging, resizing or switching layouts)
+export async function keepOnScreen() {
+  if (!app.isDesktop) return; const W = app.P.win; const dpr = devicePixelRatio || 1;
+  try {
+    const p = await W.getPos(); const sc = screen; const w = innerWidth * dpr, h = innerHeight * dpr;
+    const L = (sc.availLeft || 0) * dpr, T = (sc.availTop || 0) * dpr, R = L + sc.availWidth * dpr, B = T + sc.availHeight * dpr;
+    const x = Math.round(Math.min(Math.max(p.x, L), R - w)), y = Math.round(Math.min(Math.max(p.y, T), B - h));
+    if (x !== p.x || y !== p.y) await W.move(x, y);
+    return { x, y };
+  } catch { return null; }
+}
+// beginDrag hands the move to Windows, so watch the position until it settles, then pull it back on screen
+async function afterDrag() {
+  const W = app.P.win; let last = null, still = 0;
+  for (let i = 0; i < 200 && still < 3; i++) { await new Promise((r) => setTimeout(r, 120)); const p = await W.getPos().catch(() => null); const k = p && p.x + ',' + p.y; still = k === last ? still + 1 : 0; last = k; }
+  const pos = await keepOnScreen(); if (!pos) return;
+  if (app.companion) companionSend('geom', pos); else { app.S.mini.x = pos.x; app.S.mini.y = pos.y; app.saveS(); }
+}
 export async function enterMini() {
   if (!app.isDesktop || document.body.classList.contains('mini')) return;
+  if (app.S.mini.separate) { (await import('./companion.js')).openCompanion(); return; }
   const W = app.P.win; closeNP(); closeLayer();
   try { saved = { size: await W.getSize(), pos: await W.getPos(), max: await W.isMax() }; if (saved.max) await W.unmax(); } catch {}
   document.body.classList.add('mini'); applyMini(); updateMini(true);
   const [w, h] = MINI_SIZES[app.S.mini.layout] || MINI_SIZES.bar;
   const mw = app.S.mini.w?.[app.S.mini.layout], mh = app.S.mini.h?.[app.S.mini.layout];
   await W.setSize(mw || w, mh || h);
-  if (app.S.mini.x != null) W.move(app.S.mini.x, app.S.mini.y);
-  W.onTop(app.S.mini.onTop);
+  if (app.S.mini.x != null) await W.move(app.S.mini.x, app.S.mini.y);
+  W.onTop(app.S.mini.onTop); keepOnScreen();
+  if (app.S.mini.desktopBlur) app.P.fixFrame?.(true);
 }
 export async function exitMini() {
+  if (app.companion) { companionSend('exit'); setTimeout(() => window.Neutralino.app.exit(), 200); return; }
   if (!document.body.classList.contains('mini')) return; const W = app.P.win;
+  if (app.S.mini.desktopBlur) app.P.fixFrame?.(false);
   try { const p = await W.getPos(); app.S.mini.x = p.x; app.S.mini.y = p.y; const s = await W.getSize(); (app.S.mini.w ||= {})[app.S.mini.layout] = s.width; (app.S.mini.h ||= {})[app.S.mini.layout] = s.height; app.saveS(); } catch {}
   document.body.classList.remove('mini'); W.onTop(false);
   if (saved) { await W.setSize(saved.size.width, saved.size.height); W.move(saved.pos.x, saved.pos.y); if (saved.max) W.toggleMax(); }
@@ -403,11 +428,13 @@ function wireMini() {
       const order = ['bar', 'card', 'square', 'strip', 'art']; const W = app.P.win;
       try { const s = await W.getSize(); (M.w ||= {})[M.layout] = s.width; (M.h ||= {})[M.layout] = s.height; } catch {}
       M.layout = order[(order.indexOf(M.layout) + 1) % order.length]; app.saveS(); applyMini(); updateMini(true);
-      const [w, h] = MINI_SIZES[M.layout]; await W.setSize(M.w?.[M.layout] || w, M.h?.[M.layout] || h);
-    } else if (k === 'custom') { await exitMiniForCustom(); }
+      const [w, h] = MINI_SIZES[M.layout]; await W.setSize(M.w?.[M.layout] || w, M.h?.[M.layout] || h); keepOnScreen();
+    } else if (k === 'custom') { if (app.companion) companionSend('custom'); else await exitMiniForCustom(); }
   });
   // drag window from anywhere that's not a control
-  mini.addEventListener('pointerdown', (e) => { if (e.button !== 0 || e.target.closest('button, .slider')) return; app.P.win.drag(); });
+  // every layout drags from anywhere that isn't a control (images can't start an HTML drag and steal it)
+  mini.addEventListener('dragstart', (e) => e.preventDefault());
+  mini.addEventListener('pointerdown', (e) => { if (e.button !== 0 || e.target.closest('button, .slider, .mini-hover.open')) return; e.preventDefault(); app.P.win.drag(); afterDrag(); });
   mini.addEventListener('dblclick', (e) => { if (!e.target.closest('button, .slider')) exitMini(); });
   mini.addEventListener('wheel', (e) => { player.setVolume(app.S.volume - Math.sign(e.deltaY) * 0.05); toast(`Volume ${Math.round(app.S.volume * 100)}%`, 700); }, { passive: true });
   mini.addEventListener('contextmenu', (e) => { e.preventDefault(); miniMenu({ x: e.clientX, y: e.clientY }); });
@@ -417,48 +444,44 @@ function wireMini() {
 }
 function miniMenu(at) {
   const M = app.S.mini;
-  menu([{ header: 'Layout' }, ...[['bar', 'Bar'], ['card', 'Card'], ['square', 'Square cover'], ['strip', 'Slim strip'], ['art', 'Cover only']].map(([k, l]) => ({ label: l, checked: M.layout === k, action: async () => { M.layout = k; app.saveS(); applyMini(); updateMini(true); const [w, h] = MINI_SIZES[k]; await app.P.win.setSize(M.w?.[k] || w, M.h?.[k] || h); } })), '-', { label: 'Customize…', icon: 'palette', action: exitMiniForCustom }, { label: M.onTop ? 'Unpin from top' : 'Always on top', icon: 'pin', action: () => { M.onTop = !M.onTop; app.P.win.onTop(M.onTop); applyMini(); app.saveS(); } }, { label: 'Back to full player', icon: 'expand', action: exitMini }], at);
+  menu([{ header: 'Layout' }, ...[['bar', 'Bar'], ['card', 'Card'], ['square', 'Square cover'], ['strip', 'Slim strip'], ['art', 'Cover only']].map(([k, l]) => ({ label: l, checked: M.layout === k, action: async () => { M.layout = k; app.saveS(); applyMini(); updateMini(true); const [w, h] = MINI_SIZES[k]; await app.P.win.setSize(M.w?.[k] || w, M.h?.[k] || h); keepOnScreen(); } })), '-', { label: 'Customize…', icon: 'palette', action: () => (app.companion ? companionSend('custom') : exitMiniForCustom()) }, { label: M.onTop ? 'Unpin from top' : 'Always on top', icon: 'pin', action: () => { M.onTop = !M.onTop; app.P.win.onTop(M.onTop); applyMini(); app.saveS(); } }, { label: 'Back to full player', icon: 'expand', action: exitMini }], at);
 }
 async function exitMiniForCustom() { await exitMini(); miniCustomize(); }
 export function miniCustomize() {
   const M = app.S.mini;
-  const seg = (k, opts) => `<div class="seg" data-mseg="${k}">${opts.map(([v, l]) => `<button data-v="${v}" class="${M[k] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const seg = (k, opts) => `<div class="seg" data-mseg="${k}">${opts.map(([v, l]) => `<button data-v="${v}" class="${String(M[k]) === String(v) ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const tg = (k) => `<div class="tog ${M[k] ? 'on' : ''}" data-mtog="${k}"></div>`;
+  const rg = (k, min, max, step, fmt) => `<input type="range" min="${min}" max="${max}" step="${step}" value="${k === 'transp' ? 1 - M.opacity : M[k]}" data-mr="${k}"><span class="val">${fmt(k === 'transp' ? 1 - M.opacity : M[k])}</span>`;
+  const pct = (v) => Math.round(v * 100) + '%', px = (v) => v + 'px';
   const m = modal(`<h2>Mini player <button class="ib sm" data-close>${ico('x')}</button></h2>
-    <div class="mini-stage" id="miniStage"><small></small></div>
+    <p class="mc-live">${ico('mini')}<span>Your real mini player is open next to Pulse — changes show on it as you make them.</span></p>
+    <div class="opt"><div class="l"><b>Opens as</b><small>A separate window keeps the main app open alongside it</small></div><div class="r">${seg('separate', [['false', 'Replaces the main window'], ['true', 'Separate window']])}</div></div>
     <div class="opt"><div class="l"><b>Layout</b></div><div class="r">${seg('layout', [['bar', 'Bar'], ['card', 'Card'], ['square', 'Square'], ['strip', 'Strip'], ['art', 'Cover']])}</div></div>
-    <div class="opt"><div class="l"><b>Background opacity</b><small>Lower = see-through to your desktop</small></div><div class="r"><input type="range" min="0" max="1" step="0.01" value="${M.opacity}" data-mr="opacity"><span class="val">${Math.round(M.opacity * 100)}%</span></div></div>
+    <div class="opt"><div class="l"><b>Transparency</b><small>How much of your desktop shows through</small></div><div class="r">${rg('transp', 0, 1, 0.01, pct)}</div></div>
+    <div class="opt"><div class="l"><b>Blur the desktop behind it</b><small>Real Windows 11 blur under the see-through parts (Windows rounds the corners itself when this is on)</small></div><div class="r">${tg('desktopBlur')}</div></div>
     <div class="opt"><div class="l"><b>Album-art glow</b><small>Blurred cover behind the controls</small></div><div class="r">${tg('art')}</div></div>
-    <div class="opt"><div class="l"><b>Blur strength</b></div><div class="r"><input type="range" min="0" max="90" step="1" value="${M.blur}" data-mr="blur"><span class="val">${M.blur}px</span></div></div>
-    <div class="opt"><div class="l"><b>Corner roundness</b></div><div class="r"><input type="range" min="0" max="32" step="1" value="${M.radius}" data-mr="radius"><span class="val">${M.radius}px</span></div></div>
+    <div class="opt"><div class="l"><b>Glow blur</b></div><div class="r">${rg('blur', 0, 90, 1, px)}</div></div>
+    <div class="opt"><div class="l"><b>Corner roundness</b></div><div class="r">${rg('radius', 0, 32, 1, px)}</div></div>
     <div class="opt"><div class="l"><b>Progress bar</b></div><div class="r">${tg('progress')}</div></div>
     <div class="opt"><div class="l"><b>Show times</b></div><div class="r">${tg('times')}</div></div>
     <div class="opt"><div class="l"><b>Always on top</b></div><div class="r">${tg('onTop')}</div></div>
-    <p style="opacity:.6;font-size:12.5px;margin:12px 0 0">Tips: drag anywhere to move it, resize from the edges, scroll to change volume, right-click for layouts, double-click to go back.</p>
-    <div class="row"><button class="pill" data-close>Done</button><button class="pill solid" data-open>${ico('mini')}Open mini player</button></div>`);
+    <p style="opacity:.6;font-size:12.5px;margin:12px 0 0">Drag it anywhere, resize from the edges, scroll on it to change volume, right-click for layouts, double-click to close it.</p>
+    <div class="row"><button class="pill solid" data-close>Done</button></div>`);
   m.classList.add('wide'); m.style.width = 'min(640px, calc(100vw - 28px))';
-  const stage = m.querySelector('#miniStage');
-  const drawPreview = async () => {
-    applyMini(); await updateMini(true);
-    stage.querySelector('.miniplayer')?.remove();
-    const [dw, dh] = MINI_SIZES[M.layout] || MINI_SIZES.bar; const w = M.w?.[M.layout] || dw, hh = M.h?.[M.layout] || dh;
-    const c = $('#mini').cloneNode(true); c.id = 'miniPreview'; c.classList.add('preview');
-    c.querySelectorAll('[id]').forEach((x) => x.removeAttribute('id'));
-    c.style.width = w + 'px'; c.style.height = hh + 'px';
-    const sc = Math.min(1, (stage.clientWidth - 30) / w, (stage.clientHeight - 30) / hh);
-    stage.style.height = Math.max(150, Math.min(340, hh * sc + 60)) + 'px';
-    const sc2 = Math.min(1, (stage.clientWidth - 30) / w, (Math.min(340, hh + 60) - 30) / hh);
-    c.style.transform = sc2 < 1 ? `scale(${sc2})` : ''; c.style.transformOrigin = 'center';
-    stage.appendChild(c);
-    stage.querySelector(':scope > small').textContent = `${w} × ${hh}${sc2 < 1 ? ` • shown at ${Math.round(sc2 * 100)}%` : ' • actual size'}`;
-  };
-  requestAnimationFrame(drawPreview);
+  // show the real thing while customizing; close it afterwards unless it's meant to stay as its own window
+  const wasOpen = host.alive; if (app.isDesktop) openCompanion();
+  const gone = new MutationObserver(() => { if (!m.isConnected) { gone.disconnect(); if (!wasOpen && !app.S.mini.separate) closeCompanion(); } });
+  gone.observe($('#layer'), { childList: true, subtree: true });
+  const changed = () => { app.saveS(); pushState(true); };
   m.addEventListener('click', (e) => {
-    const s = e.target.closest('[data-mseg] button'); if (s) { M[s.parentElement.dataset.mseg] = s.dataset.v; $$('button', s.parentElement).forEach((b) => b.classList.toggle('on', b === s)); app.saveS(); drawPreview(); }
-    const t = e.target.closest('[data-mtog]'); if (t) { const k = t.dataset.mtog; M[k] = !M[k]; t.classList.toggle('on', M[k]); app.saveS(); drawPreview(); }
-    if (e.target.closest('[data-open]')) { closeLayer(); enterMini(); }
+    const s = e.target.closest('[data-mseg] button'); if (s) { const k = s.parentElement.dataset.mseg; M[k] = k === 'separate' ? s.dataset.v === 'true' : s.dataset.v; $$('button', s.parentElement).forEach((b) => b.classList.toggle('on', b === s)); changed(); }
+    const t = e.target.closest('[data-mtog]'); if (t) { const k = t.dataset.mtog; M[k] = !M[k]; t.classList.toggle('on', M[k]); changed(); }
   });
-  m.addEventListener('input', (e) => { const r = e.target.closest('[data-mr]'); if (!r) return; const k = r.dataset.mr; M[k] = +r.value; r.nextElementSibling.textContent = k === 'opacity' ? Math.round(M[k] * 100) + '%' : M[k] + 'px'; app.saveS(); applyMini(); const pv = stage.querySelector('.miniplayer'); if (pv) { for (const v of ['--mini-a', '--mini-blur', '--mini-r', '--mini-art']) pv.style.setProperty(v, $('#mini').style.getPropertyValue(v)); } });
+  m.addEventListener('input', (e) => {
+    const r = e.target.closest('[data-mr]'); if (!r) return; const k = r.dataset.mr; const v = +r.value;
+    if (k === 'transp') { M.opacity = +(1 - v).toFixed(2); r.nextElementSibling.textContent = pct(v); } else { M[k] = v; r.nextElementSibling.textContent = px(v); }
+    changed();
+  });
 }
 
 function wireMiniHandle() {
@@ -476,7 +499,7 @@ export function initNP() { wireNP(); wireMiniHandle(); if (app.isDesktop) wireMi
 export function npTick() {
   if (npLyr?.sync) npLyr.sync(); if (panelLyrics?.sync) panelLyrics.sync();
 }
-export function refreshArt() { lastNPTrack = null; lastMini = null; updateNP(); updateMini(); if (app.S.panel) drawPanel(); }
+export function refreshArt() { lastNPTrack = null; lastMini = null; updateNP(); updateMini(); drawPanel(); }
 export function onTrackChange() {
   if (app.S.panel === 'lyrics' || app.S.panel === 'info' || app.S.panel === 'queue') drawPanel();
   updateNP(); updateMini();

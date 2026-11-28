@@ -106,6 +106,7 @@
       <button class="ib" id="navFwd" title="Forward"><svg><use href="#i-fwd"/></svg></button>
     </div>
     <div class="tb-drag" id="dragZone"></div>
+    <button class="ib tb-home" data-go="home" title="Home"><svg><use href="#i-home"/></svg></button>
     <label class="tb-search" id="topSearch">
       <svg><use href="#i-search"/></svg>
       <input id="searchInput" placeholder="Search songs, albums, artists…" autocomplete="off" spellcheck="false">
@@ -124,10 +125,6 @@
   </header>
 
   <aside id="side">
-    <nav class="side-nav">
-      <a data-go="home"><svg><use href="#i-home"/></svg><span>Home</span></a>
-      <a data-go="search"><svg><use href="#i-search"/></svg><span>Search</span></a>
-    </nav>
     <div class="side-lib">
       <div class="side-head">
         <a data-go="library" class="side-title"><svg><use href="#i-library"/></svg><span>Your Library</span></a>
@@ -150,11 +147,10 @@
 
   <aside id="panel">
     <div class="panel-tabs">
-      <button data-ptab="queue" class="on">Queue</button>
+      <button data-ptab="info" class="on">Now playing</button>
+      <button data-ptab="queue">Queue</button>
       <button data-ptab="lyrics">Lyrics</button>
-      <button data-ptab="info">Now playing</button>
       <button data-ptab="devices">Devices</button>
-      <button class="ib sm" id="panelClose"><svg><use href="#i-x"/></svg></button>
     </div>
     <div id="panelBody"></div>
   </aside>
@@ -176,9 +172,7 @@
       <div class="seek-row"><span id="tCur">0:00</span><div class="slider seek" id="seek"><div class="buf"></div><div class="fill"></div><div class="knob"></div><div class="tip"></div></div><span id="tDur">0:00</span></div>
     </div>
     <div class="bar-right">
-      <button class="ib" id="bLyrics" title="Lyrics (Y)"><svg><use href="#i-lyrics"/></svg></button>
-      <button class="ib" id="bQueue" title="Queue (Q)"><svg><use href="#i-queue"/></svg></button>
-      <button class="ib" id="bDevices" title="Connect to a device"><svg><use href="#i-devices"/></svg></button>
+      <button class="ib" id="bPanel" title="Side panel: now playing, queue, lyrics, devices (P)"><svg><use href="#i-panel"/></svg></button>
       <button class="ib" id="bMore" title="Sound & playback"><svg><use href="#i-eq"/></svg></button>
       <div class="vol"><button class="ib" id="bMute" title="Mute (M)"><svg><use href="#i-vol"/></svg></button><div class="slider" id="volume"><div class="fill"></div><div class="knob"></div></div></div>
       <button class="ib desk-only" id="bMini" title="Mini player (Ctrl+M)"><svg><use href="#i-mini"/></svg></button>

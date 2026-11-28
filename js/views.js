@@ -750,7 +750,7 @@ const tog = (k, on) => `<div class="tog ${on ? 'on' : ''}" data-tog="${k}"></div
 const opt = (title, desc, right) => `<div class="opt"><div class="l"><b>${title}</b>${desc ? `<small>${desc}</small>` : ''}</div><div class="r">${right}</div></div>`;
 const ACCENTS = ['#7c5cff', '#3b82f6', '#22d3ee', '#14d8b0', '#1ed760', '#a3e635', '#ffd23f', '#ff7a1a', '#ff3d6e', '#f2558f', '#c084fc', '#e8e8ec'];
 const fmtVal = (f, v) => f === 'px' ? Math.round(v) + 'px' : f === 's' ? (v ? v + 's' : 'Off') : Math.round(v * 100) + '%';
-const THEME_KEYS = ['theme', 'accentMode', 'accent', 'accent2', 'bgMode', 'blur', 'glass', 'radius', 'font', 'glow'];
+const THEME_KEYS = ['theme', 'accentMode', 'accent', 'accent2', 'bgMode', 'blur', 'transp', 'radius', 'font', 'glow'];
 R.settings = () => {
   const S = app.S; const el = h('<div class="page settings"></div>');
   el.appendChild(h(`<div class="page-h"><h1>Settings</h1></div>`));
@@ -794,13 +794,11 @@ R.settings = () => {
     opt('Background', '', segOf('bgMode', [['aurora', 'Aurora'], ['art', 'Album art'], ['wallpaper', 'Wallpaper'], ['solid', 'Solid']])) +
     (S.bgMode === 'wallpaper' ? opt('Wallpaper', 'Any photo — it sits behind the glass', `${S.wallpaper ? `<span class="wall-thumb" style="background-image:url(${S.wallpaper})"></span>` : ''}<button class="pill" data-wall>${ico('image')}${S.wallpaper ? 'Change' : 'Choose image'}</button>${S.wallpaper ? `<button class="ib sm" data-wallrm title="Remove">${ico('x')}</button>` : ''}`) : '') +
     opt('Glass blur', 'How frosted the panels are', rng('blur', 0, 60, 1, 'px')) +
-    opt('Glass tint', 'More = solid panels, less = see-through', rng('glass', 0, 1, 0.01, 'pct')) +
+    opt('Transparency', 'How much of the background shows through the panels', rng('transp', 0, 1, 0.01, 'pct')) +
     opt('Background glow', '', rng('glow', 0, 1.6, 0.05, 'pct')) +
     opt('Corner roundness', '', rng('radius', 4, 32, 1, 'px')) +
     opt('Font', '', segOf('font', [['system', 'Clean'], ['rounded', 'Rounded'], ['serif', 'Editorial'], ['mono', 'Mono']]));
-  if (app.isDesktop) look += opt('Window transparency', 'See your desktop through the whole window', rng('winOpacity', 0.35, 1, 0.01, 'pct'));
   look += '</div>';
-  if (app.isDesktop) look += `<h3>Window</h3><div class="set-group">` + opt('Blur what’s behind the window', `Real Windows 11 blur behind the see-through parts (mini player, window opacity). Windows then uses its own smaller corner rounding. Takes effect next launch.<br><span style="opacity:.6">Window fix: ${esc(app.P.frameFix || 'not run yet')}</span>`, tog('winBlur', S.winBlur === true)) + `</div>`;
   look += `<h3>Motion & layout</h3><div class="set-group">` + opt('Animations', '', segOf('anim', [['full', 'Full'], ['low', 'Subtle'], ['off', 'Off']])) + opt('Compact rows', 'Fit more songs on screen', tog('compact', S.compact)) + opt('Blur inactive lyric lines', '', tog('blurLyrics', S.blurLyrics)) + '</div>';
   el.appendChild(h(`<div>${look}</div>`));
   if (cur && !artURL) app.P.coverURL(cur, true).then((u) => { const a = el.querySelector('[data-tpart]'); if (u && a) a.style.backgroundImage = `url(${u})`; });
@@ -838,7 +836,7 @@ R.settings = () => {
     const keys = [['Space', 'Play / pause'], ['Shift + → / ←', 'Next / previous'], ['→ / ←', 'Seek 5s'], ['↑ / ↓', 'Volume'], ['M', 'Mute'], ['S', 'Shuffle'], ['R', 'Repeat'], ['L', 'Like current song'], ['Q', 'Queue'], ['Y', 'Lyrics'], ['F', 'Now Playing'], ['Ctrl + K or /', 'Search'], ['Ctrl + M', 'Mini player'], ['Ctrl + B', 'Sidebar'], ['Ctrl + ,', 'Settings'], ['Alt + ← / →', 'Back / forward'], ['Esc', 'Close overlays'], ['Ctrl + A', 'Select all songs']];
     el.appendChild(h(`<div><h3>Keyboard shortcuts</h3><div class="set-group"><div class="keys">${keys.map(([k, d]) => `<div><span>${d}</span><kbd>${k}</kbd></div>`).join('')}</div></div></div>`));
   }
-  el.appendChild(h(`<div><h3>Data</h3><div class="set-group">${opt('Backup library', 'Playlists, folders, likes and play counts as a JSON file', `<button class="pill" data-backup>${ico('export')}Export</button><button class="pill" data-restore>${ico('import')}Import</button>`)}${opt('Reset settings', 'Library is kept', `<button class="pill" data-resetS>Reset</button>`)}${opt('Version', `Pulse ${VERSION}<span id="updInfo"></span>`, `<button class="pill" data-checkupd>${ico('refresh')}Check for updates</button>`)}</div></div>`));
+  el.appendChild(h(`<div><h3>Data</h3><div class="set-group">${opt('Backup library', 'Playlists, folders, likes and play counts as a JSON file', `<button class="pill" data-backup>${ico('export')}Export</button><button class="pill" data-restore>${ico('import')}Import</button>`)}${opt('Reset settings', 'Library is kept', `<button class="pill" data-resetS>Reset</button>`)}${opt('Version', `Pulse ${VERSION}<span id="updInfo"></span>${app.isDesktop && app.P.frameFix ? `<br><span style="opacity:.55">Window fix: ${esc(app.P.frameFix)}</span>` : ''}`, `<button class="pill" data-checkupd>${ico('refresh')}Check for updates</button>`)}</div></div>`));
 
   // wiring
   el.addEventListener('click', async (e) => {

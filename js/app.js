@@ -1,13 +1,15 @@
 // Pulse — boot + shell wiring
 import { modal } from './core.js';
 import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, currentColor, setBgArt, coverImg, hydrate, flip, haptic, go, back, fwd, refresh, refreshSoon, markNav, menu, closeLayer, setImg, setLikeBtn, burst, marquee, slider, ico } from './core.js';
-import { $, $$, fmtTime, debounce, throttle, clamp, norm } from './util.js';
+import { $, $$, fmtTime, debounce, throttle, clamp, norm, overlayScroll } from './util.js';
 import { albumKeyOf, primaryArtist } from './library.js';
 import { trackMenu, albumKey, treeEl, rerenderTrees, createMenu, importMusic, addFolder, libSortMenu } from './views.js';
 import * as NP from './np.js';
 import { autoFill } from './spotify.js';
 
 const isDesktop = !!window.PULSE_DESKTOP;
+const isCompanion = isDesktop && new URLSearchParams(location.search).has('mini');
+window.PULSE_COMPANION = isCompanion;
 const mq = matchMedia('(max-width: 760px)');
 
 async function boot() {
@@ -15,6 +17,7 @@ async function boot() {
   document.body.classList.add(isDesktop ? 'desktop' : 'web');
   mq.addEventListener('change', () => { app.isMobile = mq.matches; refresh(); });
   app.S = loadSettings();
+  if (isCompanion) return bootCompanion();
   applyTheme();
   const mod = isDesktop ? await import('./platform-desktop.js') : await import('./platform-web.js');
   const P = app.P = isDesktop ? mod.createDesktopPlatform() : mod.createWebPlatform();
@@ -23,12 +26,13 @@ async function boot() {
   if (isDesktop) await Promise.all(lib.db.roots.filter((r) => r.path).map((r) => P.mountRoot(r).catch(() => {})));
   player.init(P, app.S);
   wireShell(); NP.initNP();
+  overlayScroll($('#view'), $('#main')); overlayScroll($('#panelBody'), $('#panel')); overlayScroll($('#side .side-scroll'), $('#side .side-lib'));
   rerenderTrees();
   const lv = app.S.lastView; const start = app.isMobile ? { view: 'home', params: {} } : (lv && app.renderers[lv.view] ? lv : { view: 'home', params: {} });
   go(start.view, start.params || {});
   player.restore(lib.db.session);
   updateBar(); updateState(); updateModes(); updateVolume();
-  if (app.S.panel && !app.isMobile) NP.openPanel(app.S.panel);
+  if (app.S.panelOpen !== false && !app.isMobile) NP.openPanel(app.S.panel || 'info');
   requestAnimationFrame(() => document.body.classList.remove('booting'));
 
   // desktop: background rescan + folder watching
@@ -47,15 +51,46 @@ async function boot() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }
-async function quit() { saveSession(); await lib.saveNow(); app.P.win.exit(); }
+// The separate mini-player window: no library, no audio — it mirrors the main window (see companion.js)
+async function bootCompanion() {
+  app.companion = true; document.body.classList.add('mini', 'companion');
+  applyTheme();
+  const mod = await import('./platform-desktop.js'); const P = app.P = mod.createDesktopPlatform(); await P.init();
+  NP.initNP(); wireGrips();
+  (await import('./companion.js')).runCompanion();
+  requestAnimationFrame(() => document.body.classList.remove('booting'));
+}
+async function quit() { saveSession(); await lib.saveNow(); await (await import('./companion.js')).closeCompanion(); app.P.win.exit(); }
 function setTray() { if (!isDesktop) return; app.P.win.setTray([{ id: 'show', text: 'Show Pulse' }, { id: 'mini', text: 'Mini player' }, { id: 'sep1', text: '-' }, { id: 'play', text: player.playing ? 'Pause' : 'Play' }, { id: 'next', text: 'Next' }, { id: 'prev', text: 'Previous' }, { id: 'sep2', text: '-' }, { id: 'quit', text: 'Quit' }]); }
 const setTraySoon = debounce(setTray, 400);
 
+function wireGrips() {
+  const W = app.P.win;
+    $$('#grips .g').forEach((g) => g.addEventListener('pointerdown', async (e) => {
+      if (W._max) return;
+      e.preventDefault(); g.setPointerCapture(e.pointerId);
+      const mode = g.dataset.g; const s = await W.getSize(); const pos = await W.getPos(); const sx = e.screenX, sy = e.screenY;
+      const mini = document.body.classList.contains('mini'); const minW = mini ? 180 : 720, minH = mini ? 40 : 480;
+      const dpr = devicePixelRatio || 1;
+      const mv = throttle((ev) => {
+        const dx = ev.screenX - sx, dy = ev.screenY - sy;
+        let w = s.width, hh = s.height, x = pos.x, y = pos.y;
+        if (mode.includes('r')) w = Math.max(minW, s.width + dx);
+        if (mode.includes('b')) hh = Math.max(minH, s.height + dy);
+        if (mode.includes('l')) { w = Math.max(minW, s.width - dx); x = pos.x + (s.width - w) * dpr; }
+        if (mode.includes('t')) { hh = Math.max(minH, s.height - dy); y = pos.y + (s.height - hh) * dpr; }
+        W.setSize(w, hh); if (x !== pos.x || y !== pos.y) W.move(x, y);
+      }, 16);
+      const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); if (mini) { document.dispatchEvent(new CustomEvent('miniresized')); NP.keepOnScreen(); } };
+      g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up);
+    }));
+}
+
 // ---------------- session ----------------
-function saveSession() { lib.db.session = player.snapshot(); lib.save(); }
+function saveSession() { if (isCompanion || !lib.db) return; lib.db.session = player.snapshot(); lib.save(); }
 const saveSessionSoon = throttle(saveSession, 5000);
-addEventListener('pagehide', () => { saveSession(); lib.saveNow(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden) { saveSession(); lib.saveNow(); } });
+addEventListener('pagehide', () => { if (isCompanion) return; saveSession(); lib.saveNow(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && !isCompanion) { saveSession(); lib.saveNow(); } });
 
 // ---------------- bar ----------------
 let seekS, volS, npSeekS;
@@ -156,7 +191,7 @@ function wireShell() {
   $('#barTitle').onclick = () => { const t = player.track; if (t) go('album', { key: albumKey(t) }); };
   $('#barArtist').onclick = () => { const t = player.track; if (t) go('artist', { key: albumKey(t).split('\u0001')[0] }); };
   $('#bar .bar-left').addEventListener('contextmenu', (e) => { const t = player.track; if (t) { e.preventDefault(); trackMenu([t.id], { x: e.clientX, y: e.clientY }); } });
-  $('#bDevices').onclick = () => NP.openPanel('devices'); NP.watchDevices(); $('#bQueue').onclick = () => NP.openPanel('queue'); $('#bLyrics').onclick = () => NP.openPanel('lyrics');
+  $('#bPanel').onclick = () => NP.togglePanel(); NP.watchDevices();
   $('#bMore').onclick = (e) => menu([
     { label: 'Equalizer & sound', icon: 'eq', action: NP.soundPanel },
     { label: 'Sleep timer', icon: 'moon', action: () => NP.sleepMenu({ el: $('#bMore'), up: true, right: true }) },
@@ -166,13 +201,14 @@ function wireShell() {
   ], { el: e.currentTarget, up: true, right: true });
   $('#bMute').onclick = () => player.toggleMute();
   $('#bMini').onclick = () => NP.enterMini();
-  $('#panelClose').onclick = NP.closePanel;
   $$('[data-ptab]').forEach((b) => (b.onclick = () => NP.openPanel(b.dataset.ptab)));
 
   const seekCfg = (el) => slider(el, { get: () => (player.duration ? player.time / player.duration : 0), set: (v) => player.seek(v * player.duration), preview: (v, hover) => { el.querySelector('.tip') && (el.querySelector('.tip').textContent = fmtTime(v * player.duration)); if (!hover && el.id === 'seek') flip($('#tCur'), fmtTime(v * player.duration)); } });
   seekS = seekCfg($('#seek')); npSeekS = seekCfg($('#npSeekBar'));
   volS = slider($('#volume'), { get: () => app.S.volume, set: (v) => player.setVolume(v), preview: (v, hover) => { if (!hover) player.setVolume(v); } });
 
+  // keep a separate mini-player window in sync
+  import('./companion.js').then((C) => { player.on((e) => { if (e !== 'time' && C.host.alive) C.pushState(); }); lib.on((e) => { if (e === 'liked' && C.host.alive) C.pushState(); }); });
   // player events
   player.on((e) => {
     if (e === 'time') updateTime();
@@ -209,25 +245,7 @@ function wireShell() {
       W.drag();
     });
     $('#titlebar').addEventListener('dblclick', (e) => { if (!e.target.closest('button, input, a, label')) $('#wMax').click(); });
-    // resize grips (borderless window)
-    $$('#grips .g').forEach((g) => g.addEventListener('pointerdown', async (e) => {
-      if (W._max) return;
-      e.preventDefault(); g.setPointerCapture(e.pointerId);
-      const mode = g.dataset.g; const s = await W.getSize(); const pos = await W.getPos(); const sx = e.screenX, sy = e.screenY;
-      const mini = document.body.classList.contains('mini'); const minW = mini ? 180 : 720, minH = mini ? 40 : 480;
-      const dpr = devicePixelRatio || 1;
-      const mv = throttle((ev) => {
-        const dx = ev.screenX - sx, dy = ev.screenY - sy;
-        let w = s.width, hh = s.height, x = pos.x, y = pos.y;
-        if (mode.includes('r')) w = Math.max(minW, s.width + dx);
-        if (mode.includes('b')) hh = Math.max(minH, s.height + dy);
-        if (mode.includes('l')) { w = Math.max(minW, s.width - dx); x = pos.x + (s.width - w) * dpr; }
-        if (mode.includes('t')) { hh = Math.max(minH, s.height - dy); y = pos.y + (s.height - hh) * dpr; }
-        W.setSize(w, hh); if (x !== pos.x || y !== pos.y) W.move(x, y);
-      }, 16);
-      const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); if (mini) document.dispatchEvent(new CustomEvent('miniresized')); };
-      g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up);
-    }));
+    wireGrips();
   }
 
   // keyboard
@@ -254,6 +272,7 @@ function wireShell() {
       case 'l': case 'L': like($('#barLike')); break;
       case 'q': case 'Q': NP.openPanel('queue'); break;
       case 'y': case 'Y': NP.openPanel('lyrics'); break;
+      case 'p': case 'P': NP.togglePanel(); break;
       case 'f': case 'F': NP.isNPOpen() ? NP.closeNP() : NP.openNP(); break;
       case '/': e.preventDefault(); $('#searchInput').focus(); break;
       case 'MediaPlayPause': player.toggle(); break; case 'MediaTrackNext': player.next(); break; case 'MediaTrackPrevious': player.prev(); break;

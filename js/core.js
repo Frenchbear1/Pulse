@@ -5,7 +5,7 @@ import { $, $$, esc, h, debounce, toast, clamp } from './util.js';
 
 export const DEFAULTS = {
   theme: 'dark', accentMode: 'dynamic', accent: '#7c5cff', accent2: 'auto', bgMode: 'aurora', wallpaper: null, blur: 28, glass: 0.35, radius: 20, font: 'system', preset: 'pulse',
-  anim: 'full', compact: false, winOpacity: 1, glow: 1,
+  anim: 'full', compact: false, transp: 0.6, glow: 1,
   volume: 0.8, muted: false, speed: 1, keepPitch: true, shuffle: false, repeat: 'off', crossfade: 0, fadePause: true, leveler: false,
   eqOn: false, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], preamp: 0, eqPreset: 'Flat', engine: 'auto',
   sideMini: false, panel: null, viz: 'bars', blurLyrics: false, lastView: null, songsSort: { k: 'added', d: -1 }, albumSort: 'name', gridSize: 172,
@@ -14,7 +14,7 @@ export const DEFAULTS = {
   npView: 'panel',
   gest: { right: 'queue', left: 'like', miniSwipe: true, miniUp: true, npDown: true, artSwipe: true, artDouble: true, haptics: true }
 };
-export const VERSION = '1.3.2';
+export const VERSION = '1.4.0';
 export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
@@ -72,12 +72,12 @@ export function applyTheme() {
   for (const f of ['rounded', 'serif', 'mono']) b.classList.toggle('f-' + f, S.font === f);
   b.classList.toggle('compact', !!S.compact);
   b.classList.toggle('anim-off', S.anim === 'off'); b.classList.toggle('anim-low', S.anim === 'low');
-  b.classList.toggle('win-acrylic', !!S.winBlur && !!app.isDesktop); const narrow = innerWidth > 760 && innerWidth <= 1000; b.classList.toggle('side-narrow', narrow); if (!narrow) b.classList.remove('side-drawer'); b.classList.toggle('side-mini', narrow ? !b.classList.contains('side-drawer') : !!S.sideMini); b.classList.toggle('blur-lyrics', !!S.blurLyrics);
+  const narrow = innerWidth > 760 && innerWidth <= 1000; b.classList.toggle('side-narrow', narrow); if (!narrow) b.classList.remove('side-drawer'); b.classList.toggle('side-mini', narrow ? !b.classList.contains('side-drawer') : !!S.sideMini); b.classList.toggle('blur-lyrics', !!S.blurLyrics);
   const st = document.documentElement.style; const light = theme === 'light';
-  st.setProperty('--alpha', app.isDesktop ? S.winOpacity : 1); st.setProperty('--glow', S.glow);
+  st.setProperty('--alpha', 1); st.setProperty('--glow', S.glow);
   st.setProperty('--card', S.gridSize + 'px');
   st.setProperty('--blur', S.blur + 'px');
-  st.setProperty('--panel-a', (light ? 0.3 + S.glass * 0.6 : 0.015 + S.glass * 0.22).toFixed(3));
+  st.setProperty('--panel-a', light ? '.34' : '.05'); st.setProperty('--panel-solid', ((1 - (S.transp ?? 0.6)) * (light ? 0.7 : 0.92)).toFixed(3));
   st.setProperty('--r', S.radius + 'px'); st.setProperty('--r-sm', Math.round(S.radius * 0.65) + 'px');
   const wall = document.querySelector('#bg .bg-wall'); if (wall) wall.style.backgroundImage = S.wallpaper ? `url(${S.wallpaper})` : '';
   const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = getComputedStyle(b).getPropertyValue('--bg-rgb') ? `rgb(${getComputedStyle(b).getPropertyValue('--bg-rgb')})` : '#09090e';
@@ -280,19 +280,30 @@ export function marquee(wrap) {
 }
 
 // Rolling digit counters: each digit is a little reel that glides to its new value.
-// Numbers: each changed digit quickly fades in where the old one was (no reels, so layout and the colon never move)
+// Numbers: a changed digit morphs into the next one in place — the old glyph blurs, squashes and dissolves while the
+// new one forms out of it, overlapping, so there's never an empty slot or layout shift.
+const MORPH_OUT = [{ opacity: 1, filter: 'blur(0)', transform: 'translateY(0) scale(1, 1)' }, { opacity: 0, filter: 'blur(3px)', transform: 'translateY(-28%) scale(.85, .55)' }];
+const MORPH_IN = [{ opacity: 0, filter: 'blur(3px)', transform: 'translateY(28%) scale(.85, .55)' }, { opacity: 1, filter: 'blur(0)', transform: 'translateY(0) scale(1, 1)' }];
 export function flip(el, text) {
   if (!el) return; text = String(text);
   if (el._flip === text) return;
   const prev = el._flip; el._flip = text;
-  if (prev == null || app.S?.anim === 'off' || prev.length !== text.length || !el._cells) {
+  if (prev == null || prev.length !== text.length || !el._cells) {
     el.classList.add('flipnum'); el.textContent = '';
-    el._cells = [...text].map((ch) => { const c = document.createElement('span'); c.textContent = ch; el.appendChild(c); return c; });
+    el._cells = [...text].map((ch) => { const c = document.createElement('span'); c.className = 'dg'; c.textContent = ch; el.appendChild(c); return c; });
     return;
   }
+  const off = app.S?.anim === 'off' || document.hidden; const dur = app.S?.anim === 'low' ? 260 : 420;
   [...text].forEach((ch, i) => {
     const c = el._cells[i]; if (c.textContent === ch) return;
-    c.textContent = ch; c.classList.remove('fd'); void c.offsetWidth; c.classList.add('fd');
+    if (off) { c.textContent = ch; return; }
+    c._old?.remove();
+    const old = document.createElement('span'); old.className = 'dg-old'; old.textContent = c.textContent;
+    old.style.left = c.offsetLeft + 'px'; old.style.top = c.offsetTop + 'px'; old.style.width = c.offsetWidth + 'px'; old.style.height = c.offsetHeight + 'px';
+    c.textContent = ch; el.appendChild(old); c._old = old;
+    const ease = 'cubic-bezier(.3,.7,.2,1)';
+    old.animate(MORPH_OUT, { duration: dur * 0.8, easing: ease, fill: 'forwards' }).onfinish = () => old.remove();
+    c.animate(MORPH_IN, { duration: dur, easing: ease });
   });
 }
 

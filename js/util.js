@@ -124,3 +124,31 @@ export function toast(msg, ms = 2400) {
   requestAnimationFrame(() => t.classList.add('show'));
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, ms);
 }
+
+// Thin overlay scrollbar: floats over content (no gutter eating into sticky headers or rounded corners), fades when idle, draggable
+export function overlayScroll(sc, host = sc.parentElement) {
+  if (!sc || sc._ovs) return; sc._ovs = true; sc.classList.add('ovs-hide');
+  const bar = document.createElement('div'); bar.className = 'ovs'; const th = document.createElement('div'); th.className = 'ovs-th'; bar.appendChild(th); host.appendChild(bar);
+  if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+  let idle = null, raf = 0;
+  const place = () => {
+    raf = 0; const sh = sc.scrollHeight, ch = sc.clientHeight; const show = sh > ch + 2; bar.style.display = show ? '' : 'none'; if (!show) return;
+    const r = sc.getBoundingClientRect(), hr = host.getBoundingClientRect();
+    bar.style.top = r.top - hr.top + 6 + 'px'; bar.style.height = ch - 12 + 'px'; bar.style.left = r.right - hr.left - 9 + 'px';
+    const trackH = ch - 12, h = Math.max(28, trackH * ch / sh); th.style.height = h + 'px'; th.style.transform = `translateY(${(trackH - h) * sc.scrollTop / (sh - ch)}px)`;
+  };
+  const kick = () => { if (!raf) raf = requestAnimationFrame(place); bar.classList.add('on'); clearTimeout(idle); idle = setTimeout(() => bar.classList.remove('on'), 900); };
+  sc.addEventListener('scroll', kick, { passive: true });
+  new ResizeObserver(() => { if (!raf) raf = requestAnimationFrame(place); }).observe(sc);
+  new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(place); }).observe(sc, { childList: true, subtree: true });
+  th.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); th.setPointerCapture(e.pointerId); bar.classList.add('drag');
+    const y0 = e.clientY, s0 = sc.scrollTop, trackH = sc.clientHeight - 12, ratio = (sc.scrollHeight - sc.clientHeight) / (trackH - th.offsetHeight);
+    const mv = (ev) => { sc.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+    const up = () => { th.removeEventListener('pointermove', mv); th.removeEventListener('pointerup', up); bar.classList.remove('drag'); };
+    th.addEventListener('pointermove', mv); th.addEventListener('pointerup', up);
+  });
+  bar.addEventListener('pointerenter', () => { bar.classList.add('on'); clearTimeout(idle); });
+  bar.addEventListener('pointerleave', () => { idle = setTimeout(() => bar.classList.remove('on'), 600); });
+  place();
+}

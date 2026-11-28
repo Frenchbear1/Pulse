@@ -4,6 +4,15 @@
 
 Windows may show "Windows protected your PC" because the app isn't code-signed — click **More info → Run anyway**.
 
+## What's new in 1.4.0
+- **Side panel is now a built-in card** next to your library (open by default), following your blur/transparency/roundness. One button in the player bar (or P) shows/hides it; tabs are Now playing, Queue, Lyrics, Devices
+- **Mini player can be its own window** next to the full app (Settings → Mini player → Opens as: Separate window). Customizing it opens your real mini player beside Pulse — no more mock preview
+- Mini player: Transparency, real Windows 11 desktop blur (optional), glow blur; every layout can be dragged from anywhere and it always stays on screen
+- Theme Studio: "Glass tint" replaced by **Transparency** (how much background shows through panels); whole-window transparency removed
+- Numbers morph smoothly into the next digit
+- Home button next to the search bar; the Home/Search card is gone; library chips are one scrollable row
+- Overlay scrollbars that don't eat into headers or corners
+
 ## What's new in 1.3.2
 - Narrow windows keep the title bar (minimize / maximize / close / drag) and the resize edges
 - The sidebar opens as a drawer over the content when the window is too narrow, instead of refusing to expand
