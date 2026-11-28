@@ -25,6 +25,18 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
+	<!-- pulse:// links from widgets, the Live Activity and Shortcuts (pulse://nowplaying, pulse://playlist/<id>) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pulse</string>
+			</array>
+		</dict>
+	</array>
 	<!-- Keep playing with the screen locked / app in the background. -->
 	<key>UIBackgroundModes</key>
 	<array>

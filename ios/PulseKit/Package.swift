@@ -15,7 +15,7 @@ import PackageDescription
 
 let package = Package(
     name: "PulseKit",
-    platforms: [.iOS(.v17), .watchOS(.v10)],
+    platforms: [.iOS(.v17), .watchOS(.v10), .macOS(.v14)],   // macOS only so `swift test` runs on a Mac
     products: [
         .library(name: "PulseKit", targets: ["PulseKit"])
     ],
