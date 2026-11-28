@@ -4,6 +4,10 @@
 
 Windows may show "Windows protected your PC" because the app isn't code-signed — click **More info → Run anyway**.
 
+## What's new in 1.3.0
+- **Devices panel** (speaker button in the player bar): send Pulse to any Bluetooth headphones or speaker, your TV/monitor over HDMI, USB headsets — without changing the Windows default. It remembers your pick, pauses if the device disconnects and switches back when it reconnects. On iPhone it opens the AirPlay picker.
+- **Library layouts like Spotify**: search your library, a "Recents" sort button (Recents, Recently added, Alphabetical, Most played, Custom order) and four views — compact list, list, grid, large grid
+
 ## What's new in 1.2.0
 - **Now Playing side panel** on wide windows, like Spotify: clicking the cover shows big art, song info and what's next beside your library instead of a mostly-empty full screen (the ⤢ button still goes full screen; choose in Settings → Now playing view)
 - **Maximize is real full screen**, and dragging the top bar while maximized no longer snaps the window back

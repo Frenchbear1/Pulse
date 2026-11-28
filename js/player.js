@@ -50,6 +50,31 @@ export const player = {
   },
 
   // ---------- Web Audio engine ----------
+  // ---- output device (Bluetooth, HDMI, USB…) ----
+  canPickOutput() { return typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype; },
+  async outputs(unlock) {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    let list = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
+    if (unlock && list.length && list.every((d) => !d.label)) {
+      // Browsers hide device names until audio permission is granted; ask once, then let go of the mic straight away
+      try { const st = await navigator.mediaDevices.getUserMedia({ audio: true }); st.getTracks().forEach((t) => t.stop()); list = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput'); } catch {}
+    }
+    return list.filter((d) => d.deviceId !== 'communications');
+  },
+  get sink() { return this.settings.sink || 'default'; },
+  async setOutput(id, label) {
+    id = id || 'default'; const sid = id === 'default' ? '' : id;
+    if (this.engineOn && this.ctx?.setSinkId) await this.ctx.setSinkId(sid);
+    else if (this.canPickOutput()) await Promise.all(this.els.map((a) => a.setSinkId(sid)));
+    else throw new Error('unsupported');
+    this.settings.sink = id; this.settings.sinkLabel = label || ''; this.save?.(); this.emit('output');
+  },
+  async restoreOutput() {
+    const id = this.settings.sink; if (!id || id === 'default') return;
+    const list = await this.outputs(false).catch(() => []);
+    if (list.some((d) => d.deviceId === id)) await this.setOutput(id, this.settings.sinkLabel).catch(() => {});
+    else this.emit('output-lost');
+  },
   enableEngine() {
     if (this.engineOn) return;
     try {
@@ -68,6 +93,7 @@ export const player = {
       this.els.forEach((a) => (a.volume = 1));
       gains[1 - this.active].gain.value = 0;
       this.applyEQ(); this.applyLeveler(); this.applyVolume();
+      if (this.settings.sink && this.settings.sink !== 'default' && ctx.setSinkId) ctx.setSinkId(this.settings.sink).catch(() => {});
       const resume = () => ctx.state !== 'running' && ctx.resume();
       document.addEventListener('pointerdown', resume, { capture: true }); document.addEventListener('keydown', resume, { capture: true });
     } catch (e) { console.warn('audio engine unavailable', e); }

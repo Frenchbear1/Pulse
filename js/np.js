@@ -100,6 +100,63 @@ function infoEl() {
   requestAnimationFrame(() => marquee(q('.marq')));
   return el;
 }
+// ---------------- Devices (where the sound comes out) ----------------
+const devIcon = (l) => /airpods|buds|headphone|headset|earphone|wh-|wf-|beats|bose qc/i.test(l) ? 'headphones' : /hdmi|display|tv|nvidia|monitor|intel\(r\) display|amd high definition/i.test(l) ? 'tv' : /speaker|echo|alexa|soundbar|jbl|sonos|boom|ue /i.test(l) && !/realtek|laptop|internal/i.test(l) ? 'speaker' : 'laptop';
+const cleanLabel = (l) => (l || '').replace(/^Default - /, '').replace(/\s*\((?:[0-9a-f]{4}:[0-9a-f]{4}|Bluetooth)\)\s*$/i, '').trim();
+export async function devicesEl() {
+  const el = h('<div class="devs"><div class="empty" style="padding:30px 0"><span class="spin"></span></div></div>');
+  const draw = async (unlock) => {
+    const T = app.isDesktop ? 'This computer' : 'This device';
+    if (!player.canPickOutput()) {
+      const air = !!window.WebKitPlaybackTargetAvailabilityEvent;
+      el.innerHTML = `<div class="dev-cur"><div class="dev-ic">${ico(app.isMobile ? 'devices' : 'laptop')}</div><div class="dev-t"><b>${T}</b><small>Playing here</small></div></div>
+        ${air ? `<button class="pill accent dev-air" data-air>${ico('airplay')}AirPlay & Bluetooth</button><p class="dev-note">Pick AirPods, a speaker, an Apple TV or your car — the same list as Control Center.</p>` : `<p class="dev-note">This browser doesn’t let apps choose a speaker. Change the output in your system’s sound settings instead.</p>`}`;
+      el.querySelector('[data-air]')?.addEventListener('click', () => { player.el.webkitShowPlaybackTargetPicker?.(); });
+      return;
+    }
+    const list = await player.outputs(unlock); const sink = player.sink;
+    const def = list.find((d) => d.deviceId === 'default'); const defName = cleanLabel(def?.label) || 'System default';
+    const others = list.filter((d) => d.deviceId !== 'default');
+    const cur = sink === 'default' ? null : others.find((d) => d.deviceId === sink);
+    const curName = cur ? cleanLabel(cur.label) : defName;
+    const unnamed = list.length && list.every((d) => !d.label);
+    el.innerHTML = `<div class="dev-cur"><div class="dev-ic on">${ico(cur ? devIcon(cur.label) : 'laptop')}</div><div class="dev-t"><b>${esc(curName)}</b><small>${cur ? 'Playing on this device' : `${T} • follows your Windows default`}</small></div><div class="eqbars"><i></i><i></i><i></i></div></div>
+      <div class="dev-h">Select a device</div>
+      <div class="dev-row ${!cur ? 'on' : ''}" data-dev="default"><div class="dev-ic">${ico('laptop')}</div><div class="dev-t"><b>${T}</b><small>Same as Windows: ${esc(defName)}</small></div>${!cur ? ico('check') : ''}</div>
+      ${others.map((d, i) => { const name = cleanLabel(d.label) || `Audio output ${i + 1}`; const on = d.deviceId === sink; const bt = /bluetooth|airpods|buds|hands-free|stereo\)|wh-|wf-/i.test(d.label); return `<div class="dev-row ${on ? 'on' : ''}" data-dev="${esc(d.deviceId)}" data-name="${esc(name)}"><div class="dev-ic">${ico(devIcon(d.label))}</div><div class="dev-t"><b>${esc(name)}</b>${bt ? `<small>${ico('bluetooth')}Bluetooth</small>` : ''}</div>${on ? ico('check') : ''}</div>`; }).join('')}
+      ${unnamed ? `<button class="pill dev-unlock" data-unlock>${ico('refresh')}Show device names</button><p class="dev-note">Windows only shares device names after you allow audio access once. Pulse never records anything — it lets go right away.</p>` : ''}
+      <div class="dev-foot">
+        <a data-bt>${ico('bluetooth')}<span>Pair a Bluetooth device</span>${ico('ext')}</a>
+        <a data-help>${ico('info')}<span>What can I connect to?</span></a>
+      </div>`;
+  };
+  el.addEventListener('click', async (e) => {
+    const r = e.target.closest('[data-dev]');
+    if (r) { if (r.classList.contains('on')) return; r.classList.add('busy'); try { await player.setOutput(r.dataset.dev, r.dataset.name); app.saveS(); toast(r.dataset.dev === 'default' ? 'Playing on this computer' : `Playing on ${r.dataset.name}`); } catch { toast('Couldn’t switch to that device'); } draw(); return; }
+    if (e.target.closest('[data-unlock]')) { draw(true); return; }
+    if (e.target.closest('[data-bt]')) { app.P.openURL('ms-settings:bluetooth'); return; }
+    if (e.target.closest('[data-help]')) modal(`<h2>What can I connect to?</h2><p style="line-height:1.55;color:var(--tx2)">Anything Windows can play sound through: <b>Bluetooth</b> headphones and speakers (including an Echo or Google speaker paired over Bluetooth), your <b>TV or monitor over HDMI</b>, <b>USB</b> headsets and DACs, and your computer’s own speakers.<br><br>Switching here only moves Pulse — the rest of your PC keeps using the Windows default. Pulse remembers your choice and goes back to it when the device reconnects.<br><br><b>Google Cast and Wi-Fi Echo streaming</b> aren’t available: the window Pulse runs in has no casting built in. Pair the speaker over Bluetooth instead and it shows up here.</p><div class="row"><button class="pill solid" id="ok">Got it</button></div>`).querySelector('#ok').onclick = () => closeLayer();
+  });
+  el.redraw = draw;
+  draw(false);
+  return el;
+}
+let devWatch = false;
+export function watchDevices() {
+  if (devWatch || !navigator.mediaDevices?.addEventListener) return; devWatch = true;
+  navigator.mediaDevices.addEventListener('devicechange', async () => {
+    const sink = player.sink; if (app.S.panel === 'devices') drawPanel();
+    if (sink === 'default' && !app.S._lostSink) return;
+    const list = await player.outputs(false); const want = app.S._lostSink || sink;
+    if (app.S._lostSink && list.some((d) => d.deviceId === want)) { await player.setOutput(want, app.S.sinkLabel).catch(() => {}); app.S._lostSink = null; app.saveS(); toast(`Back on ${app.S.sinkLabel}`); return; }
+    if (sink !== 'default' && !list.some((d) => d.deviceId === sink)) { // e.g. Bluetooth headphones turned off
+      player.pause?.(); toast(`${app.S.sinkLabel || 'Your device'} disconnected — paused`);
+      const label = app.S.sinkLabel; await player.setOutput('default').catch(() => {}); app.S._lostSink = sink; app.S.sinkLabel = label; app.saveS();
+    }
+  });
+  player.restoreOutput?.();
+}
+
 // Wide windows get the side-panel view; narrow ones (and the full-screen button) get the full-screen player
 export function npUsesPanel() { const m = app.S.npView || 'auto'; return !app.isMobile && (m === 'panel' || (m === 'auto' && innerWidth >= 1100)); }
 export function showNowPlaying() { if (npUsesPanel()) openPanel('info'); else openNP(true); }
@@ -112,14 +169,14 @@ export async function openPanel(tab) {
   if (S.panel === tab && document.body.classList.contains('panel-open') && tab) { closePanel(); return; }
   S.panel = tab; app.saveS(); document.body.classList.add('panel-open');
   $$('[data-ptab]').forEach((b) => b.classList.toggle('on', b.dataset.ptab === tab));
-  $('#bQueue').classList.toggle('on', tab === 'queue'); $('#bLyrics').classList.toggle('on', tab === 'lyrics');
+  $('#bQueue').classList.toggle('on', tab === 'queue'); $('#bLyrics').classList.toggle('on', tab === 'lyrics'); $('#bDevices').classList.toggle('on', tab === 'devices');
   await drawPanel();
 }
-export function closePanel() { app.S.panel = null; app.saveS(); document.body.classList.remove('panel-open'); $('#bQueue').classList.remove('on'); $('#bLyrics').classList.remove('on'); panelLyrics = null; }
+export function closePanel() { app.S.panel = null; app.saveS(); document.body.classList.remove('panel-open'); $('#bQueue').classList.remove('on'); $('#bLyrics').classList.remove('on'); $('#bDevices').classList.remove('on'); panelLyrics = null; }
 export async function drawPanel() {
   const tab = app.S.panel; if (!tab || !document.body.classList.contains('panel-open')) return;
   const body = $('#panelBody'); const st = body.scrollTop;
-  const el = tab === 'queue' ? queueEl() : tab === 'lyrics' ? await lyricsEl(player.track) : infoEl();
+  const el = tab === 'queue' ? queueEl() : tab === 'lyrics' ? await lyricsEl(player.track) : tab === 'devices' ? await devicesEl() : infoEl();
   body.innerHTML = ''; body.appendChild(el); panelLyrics = tab === 'lyrics' ? el : null;
   if (tab === 'queue') body.scrollTop = st;
 }
@@ -139,7 +196,7 @@ export async function npRight(tab) {
   const r = $('#npRight');
   if (npTab === tab || !tab) { npTab = null; r.innerHTML = ''; npLyr = null; $$('[data-np]').forEach((b) => b.classList.remove('on')); return; }
   npTab = tab; $$('[data-np]').forEach((b) => b.classList.toggle('on', b.dataset.np === tab));
-  const el = tab === 'lyrics' ? await lyricsEl(player.track) : queueEl(true);
+  const el = tab === 'lyrics' ? await lyricsEl(player.track) : tab === 'devices' ? await devicesEl() : queueEl(true);
   r.innerHTML = ''; r.appendChild(el); npLyr = tab === 'lyrics' ? el : null;
 }
 let lastNPTrack = null;

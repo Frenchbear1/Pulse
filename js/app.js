@@ -23,7 +23,7 @@ async function boot() {
   if (isDesktop) await Promise.all(lib.db.roots.filter((r) => r.path).map((r) => P.mountRoot(r).catch(() => {})));
   player.init(P, app.S);
   wireShell(); NP.initNP();
-  $('#tree').appendChild(treeEl(null)); rerenderTrees();
+  rerenderTrees();
   const lv = app.S.lastView; const start = app.isMobile ? { view: 'home', params: {} } : (lv && app.renderers[lv.view] ? lv : { view: 'home', params: {} });
   go(start.view, start.params || {});
   player.restore(lib.db.session);
@@ -114,7 +114,6 @@ function wireShell() {
   $('#btnSide').onclick = () => { app.S.sideMini = !app.S.sideMini; app.saveS(); applyTheme(); };
   $('#btnSettings').onclick = () => go('settings');
   $('#sideNew').onclick = (e) => createMenu({ el: e.currentTarget });
-  $('#sideSort').onclick = (e) => libSortMenu({ el: e.currentTarget });
   const si = $('#searchInput');
   si.addEventListener('input', debounce(() => { if (app.view === 'search') { app.params.q = si.value; app.S.lastView = { view: 'search', params: { q: si.value } }; refresh(); } else go('search', { q: si.value }); }, 120));
   si.addEventListener('focus', () => { if (app.view !== 'search') go('search', { q: si.value }); });
@@ -147,7 +146,7 @@ function wireShell() {
   $('#barTitle').onclick = () => { const t = player.track; if (t) go('album', { key: albumKey(t) }); };
   $('#barArtist').onclick = () => { const t = player.track; if (t) go('artist', { key: albumKey(t).split('\u0001')[0] }); };
   $('#bar .bar-left').addEventListener('contextmenu', (e) => { const t = player.track; if (t) { e.preventDefault(); trackMenu([t.id], { x: e.clientX, y: e.clientY }); } });
-  $('#bQueue').onclick = () => NP.openPanel('queue'); $('#bLyrics').onclick = () => NP.openPanel('lyrics');
+  $('#bDevices').onclick = () => NP.openPanel('devices'); NP.watchDevices(); $('#bQueue').onclick = () => NP.openPanel('queue'); $('#bLyrics').onclick = () => NP.openPanel('lyrics');
   $('#bMore').onclick = (e) => menu([
     { label: 'Equalizer & sound', icon: 'eq', action: NP.soundPanel },
     { label: 'Sleep timer', icon: 'moon', action: () => NP.sleepMenu({ el: $('#bMore'), up: true, right: true }) },

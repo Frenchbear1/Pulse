@@ -447,18 +447,14 @@ R.folders = ({ key = '' }) => {
 // LIBRARY (tiered playlists & folders)
 // =====================================================================
 R.library = ({ tab = 'all' }) => {
-  const el = h(`<div class="page"><div class="page-h"><h1>Your Library</h1><button class="pill" data-sort>${ico('sort')}${(LIB_SORTS.find((x) => x[0] === (app.S.libSort || 'custom')) || LIB_SORTS[0])[1]}</button><button class="ib" data-new title="Create">${ico('plus')}</button></div></div>`);
+  const el = h(`<div class="page"><div class="page-h"><h1>Your Library</h1><button class="ib" data-new title="Create">${ico('plus')}</button></div></div>`);
   el.querySelector('[data-new]').onclick = (e) => createMenu({ el: e.currentTarget, right: true });
-  el.querySelector('[data-sort]').onclick = (e) => libSortMenu({ el: e.currentTarget, right: true });
   const tabs = [['all', 'Playlists'], ['songs', 'Songs'], ['albums', 'Albums'], ['artists', 'Artists'], ['folders', 'Folders'], ['liked', 'Liked']];
   const chips = h(`<div class="chips lib-tabs">${tabs.map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</a>`).join('')}</div>`);
   chips.addEventListener('click', (e) => { const c = e.target.closest('[data-t]'); if (!c) return; const t = c.dataset.t; if (t === 'all') return; go(t); });
   el.appendChild(chips);
-  const special = `<a class="side-item" data-go="liked"><span class="sw liked">${ico('heart-f')}</span><span class="t"><b>Liked Songs</b><small>Playlist • ${plural(likedIds().length, 'song')}</small></span></a><a class="side-item" data-go="recent"><span class="sw recent">${ico('clock')}</span><span class="t"><b>Recently Played</b><small>History</small></span></a>`;
-  const box = h(`<div>${special}</div>`);
-  box.appendChild(treeEl(null, true));
-  el.appendChild(box);
-  box.addEventListener('click', (e) => { const a = e.target.closest('.side-item[data-go]'); if (a) go(a.dataset.go); });
+  const tools = h('<div id="libPageTools" class="lib-tools"></div>'); tools.appendChild(libToolsEl()); el.appendChild(tools);
+  const box = h('<div id="libPageTree"></div>'); box.appendChild(treeEl(null, true)); el.appendChild(box);
   if (!lib.db.rootNodes.length) el.appendChild(h(`<div class="empty" style="padding:30px 10px"><p>Make playlists and nest them in folders — as many levels deep as you like. Drag to reorganize.</p></div>`));
   return el;
 };
@@ -484,11 +480,14 @@ function importM3U() {
 const openState = new Set(JSON.parse(localStorage.getItem('pulse.open') || '[]'));
 const saveOpen = () => localStorage.setItem('pulse.open', JSON.stringify([...openState]));
 // Library ordering: pinned first, then the chosen sort (custom = your drag order)
-export const LIB_SORTS = [['custom', 'Custom order'], ['recent', 'Recently played'], ['added', 'Recently added'], ['alpha', 'Alphabetical'], ['plays', 'Most played']];
+export const LIB_SORTS = [['recent', 'Recents'], ['added', 'Recently added'], ['alpha', 'Alphabetical'], ['plays', 'Most played'], ['custom', 'Custom order']];
+export const LIB_LAYOUTS = [['compact', 'Compact list', 'v-compact'], ['list', 'List', 'v-list'], ['grid', 'Grid', 'v-grid'], ['big', 'Large grid', 'v-big']];
+const layout = () => (document.body.classList.contains('side-mini') ? 'list' : app.S.libLayout || 'list');
+let libQuery = '';
 export const LIB_VIEWS = [['all', 'Everything'], ['playlists', 'Playlists only'], ['folders', 'Folders only'], ['pinned', 'Pinned']];
 function sortNodes(ids) {
-  const k = app.S.libSort || 'custom'; const N = (id) => lib.node(id);
-  const by = { recent: (a, b) => (N(b).lastPlayed || 0) - (N(a).lastPlayed || 0), added: (a, b) => (N(b).created || 0) - (N(a).created || 0), alpha: (a, b) => sortKey(N(a).name).localeCompare(sortKey(N(b).name)), plays: (a, b) => (N(b).plays || 0) - (N(a).plays || 0) }[k];
+  const k = app.S.libSort || 'recent'; const N = (id) => lib.node(id);
+  const by = { recent: (a, b) => (N(b).lastPlayed || N(b).updated || N(b).created || 0) - (N(a).lastPlayed || N(a).updated || N(a).created || 0), added: (a, b) => (N(b).created || 0) - (N(a).created || 0), alpha: (a, b) => sortKey(N(a).name).localeCompare(sortKey(N(b).name)), plays: (a, b) => (N(b).plays || 0) - (N(a).plays || 0) }[k];
   const list = ids.filter((id) => N(id));
   const pinned = list.filter((id) => N(id).pinned).sort((a, b) => (N(a).pinned || 0) - (N(b).pinned || 0));
   const rest = list.filter((id) => !N(id).pinned); if (by) rest.sort(by);
@@ -496,33 +495,71 @@ function sortNodes(ids) {
 }
 function nodeRow(n, depth) {
   const id = n.id; const ids = n.type === 'playlist' ? n.tracks : null; const isOpen = openState.has(id);
-  const cover = n.type === 'folder' && !n.cover ? `<span class="sw sw-folder">${ico('folder')}</span>` : `<span class="sw">${collectionCover(n, ids || lib.nodeTracks(id))}</span>`;
+  const compact = layout() === 'compact';
+  const cover = compact ? (n.type === 'folder' ? `<span class="cfold">${ico('folder')}</span>` : '') : n.type === 'folder' && !n.cover ? `<span class="sw sw-folder">${ico('folder')}</span>` : `<span class="sw">${collectionCover(n, ids || lib.nodeTracks(id))}</span>`;
   const playingHere = player.source?.type === 'node' && player.source.id === id;
-  return h(`<a class="tnode ${isOpen ? 'open' : ''} ${n.type}" data-id="${id}" draggable="true" style="padding-left:${8 + depth * 18}px">${cover}<span class="t"><b>${esc(n.name)}</b><small>${n.pinned ? `<svg class="pinned"><use href="#i-pin"/></svg>` : ''}${n.type === 'folder' ? `Folder • ${plural(n.children.length, 'item')}` : `Playlist • ${plural(n.tracks.length, 'song')}`}</small></span>${playingHere ? `<span class="eq-mini ${player.playing ? '' : 'paused'}"><i></i><i></i><i></i></span>` : ''}${n.type === 'folder' ? `<span class="caret" title="${isOpen ? 'Collapse' : 'Expand'}">${ico('fwd')}</span>` : ''}</a>`);
+  return h(`<a class="tnode ${isOpen ? 'open' : ''} ${n.type}" data-id="${id}" draggable="true" style="padding-left:${8 + depth * (compact ? 14 : 18)}px">${cover}<span class="t"><b>${esc(n.name)}</b><small>${n.pinned ? `<svg class="pinned"><use href="#i-pin"/></svg>` : ''}${n.type === 'folder' ? `Folder • ${plural(n.children.length, 'item')}` : `Playlist • ${plural(n.tracks.length, 'song')}`}</small></span>${playingHere ? `<span class="eq-mini ${player.playing ? '' : 'paused'}"><i></i><i></i><i></i></span>` : ''}${n.type === 'folder' ? `<span class="caret" title="${isOpen ? 'Collapse' : 'Expand'}">${ico('fwd')}</span>` : ''}</a>`);
+}
+function specialRows() {
+  const L = layout(); const lk = likedIds().length;
+  const liked = { name: 'Liked Songs', sub: `Playlist • ${plural(lk, 'song')}`, go: 'liked', cls: 'liked', icon: 'heart-f' };
+  const rec = { name: 'Recently Played', sub: 'Your history', go: 'recent', cls: 'recent', icon: 'clock' };
+  return [liked, rec].map((x) => L === 'grid' || L === 'big'
+    ? `<a class="lcard special" data-go="${x.go}"><span class="lc-art sw ${x.cls}">${ico(x.icon)}</span><b>${x.name}</b><small>${x.sub}</small></a>`
+    : `<a class="side-item special" data-go="${x.go}"><span class="sw ${x.cls}">${ico(x.icon)}</span><span class="t"><b>${x.name}</b><small ${x.go === 'liked' ? 'class="likedCount"' : ''}>${x.sub}</small></span></a>`).join('');
+}
+function cardFor(n) {
+  const ids = n.type === 'playlist' ? n.tracks : lib.nodeTracks(n.id);
+  const art = n.type === 'folder' && !n.cover ? `<span class="lc-art sw sw-folder">${ico('folder')}</span>` : `<span class="lc-art">${collectionCover(n, ids)}</span>`;
+  const playingHere = player.source?.type === 'node' && player.source.id === n.id;
+  return h(`<a class="tnode lcard ${n.type} ${playingHere ? 'playing' : ''}" data-id="${n.id}" draggable="true">${art}<b>${n.pinned ? `<svg class="pinned"><use href="#i-pin"/></svg>` : ''}${esc(n.name)}</b><small>${n.type === 'folder' ? `Folder • ${plural(n.children.length, 'item')}` : `Playlist • ${plural(n.tracks.length, 'song')}`}</small></a>`);
 }
 export function treeEl(parent = null, big = false) {
-  const wrap = h('<div class="tree-level"></div>');
-  const view = app.S.libView || 'all';
-  if (parent === null && (view === 'playlists' || view === 'pinned')) {
-    // flat views across every folder level
-    let all = Object.values(lib.db.nodes).filter((n) => (view === 'pinned' ? n.pinned : n.type === 'playlist')).map((n) => n.id);
-    for (const id of sortNodes(all)) wrap.appendChild(nodeRow(lib.node(id), 0));
-    if (!all.length) wrap.appendChild(h(`<div class="tree-empty">${view === 'pinned' ? 'Pin playlists or folders from their ⋯ menu to keep them here.' : 'No playlists yet.'}</div>`));
+  const L = layout(); const grid = L === 'grid' || L === 'big';
+  const wrap = h(`<div class="tree-level ${parent === null ? `lay-${L}` : ''}"></div>`);
+  const view = app.S.libView || 'all'; const q = parent === null ? libQuery.trim().toLowerCase() : '';
+  const add = (n, depth) => wrap.appendChild(grid ? cardFor(n) : nodeRow(n, depth));
+  if (parent === null && !q && view === 'all') wrap.insertAdjacentHTML('beforeend', specialRows());
+  if (parent === null && (q || grid || view === 'playlists' || view === 'pinned')) {
+    // flat: searching, grid layouts, or a filter across every folder level (grid keeps folders as cards you open)
+    let all = Object.values(lib.db.nodes).filter((n) => {
+      if (q) return n.name.toLowerCase().includes(q);
+      if (view === 'pinned') return n.pinned; if (view === 'playlists') return n.type === 'playlist'; if (view === 'folders') return n.type === 'folder' && !n.parent;
+      return !n.parent;
+    }).map((n) => n.id);
+    for (const id of sortNodes(all)) add(lib.node(id), 0);
+    if (!all.length) wrap.appendChild(h(`<div class="tree-empty">${q ? `Nothing called “${esc(q)}”` : view === 'pinned' ? 'Pin playlists or folders from their ⋯ menu to keep them here.' : 'No playlists yet.'}</div>`));
   } else {
     for (const id of sortNodes(lib.children(parent))) {
       const n = lib.node(id); if (!n) continue;
       if (view === 'folders' && n.type !== 'folder') continue;
       const depth = lib.nodePath(id).length - 1;
       wrap.appendChild(nodeRow(n, depth));
-      if (n.type === 'folder' && openState.has(id)) { const kids = treeEl(id, big); kids.classList.add('tchildren'); kids.style.setProperty('--line-x', 8 + depth * 18 + 23 + 'px'); wrap.appendChild(kids); }
+      if (n.type === 'folder' && openState.has(id)) { const kids = treeEl(id, big); kids.classList.add('tchildren'); kids.style.setProperty('--line-x', 8 + depth * (L === 'compact' ? 14 : 18) + (L === 'compact' ? 10 : 23) + 'px'); wrap.appendChild(kids); }
     }
   }
-  if (parent === null) wireTree(wrap);
+  if (parent === null) { wireTree(wrap); wrap.addEventListener('click', (e) => { const a = e.target.closest('.special[data-go]'); if (a) go(a.dataset.go); }); }
   hydrate(wrap);
   return wrap;
 }
+// Search + "Recents ≡" bar above the library (sidebar and Library page)
+export function libToolsEl() {
+  const cur = LIB_SORTS.find((x) => x[0] === (app.S.libSort || 'recent')) || LIB_SORTS[0];
+  const lay = LIB_LAYOUTS.find((x) => x[0] === (app.S.libLayout || 'list')) || LIB_LAYOUTS[1];
+  const el = h(`<div class="lt ${libQuery ? 'searching' : ''}"><button class="ib sm lt-s" title="Search in Your Library">${ico('search')}</button><input class="lt-q" placeholder="Search in Your Library" value="${esc(libQuery)}"><button class="lt-sort" title="Sort and view">${esc(cur[1])}${ico(lay[2])}</button></div>`);
+  const inp = el.querySelector('.lt-q');
+  el.querySelector('.lt-s').onclick = () => { el.classList.add('searching'); inp.focus(); };
+  inp.addEventListener('input', debounce(() => { libQuery = inp.value; rerenderTrees(true); }, 120));
+  inp.addEventListener('blur', () => { if (!inp.value) el.classList.remove('searching'); });
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') { inp.value = ''; libQuery = ''; inp.blur(); rerenderTrees(true); } });
+  el.querySelector('.lt-sort').onclick = (e) => libSortMenu({ el: e.currentTarget, right: true });
+  return el;
+}
 export function libSortMenu(at) {
-  menu([{ header: 'Sort by' }, ...LIB_SORTS.map(([k, l]) => ({ label: l, checked: (app.S.libSort || 'custom') === k, action: () => { app.S.libSort = k; app.saveS(); rerenderTrees(); } })), '-', { header: 'Show' }, ...LIB_VIEWS.map(([k, l]) => ({ label: l, checked: (app.S.libView || 'all') === k, action: () => { app.S.libView = k; app.saveS(); rerenderTrees(); } }))], at);
+  const viewRow = () => { const r = h(`<div class="m-views">${LIB_LAYOUTS.map(([k, l, i]) => `<button class="${(app.S.libLayout || 'list') === k ? 'on' : ''}" data-l="${k}" title="${l}">${ico(i)}</button>`).join('')}</div>`); r.onclick = (e) => { const b = e.target.closest('[data-l]'); if (!b) return; app.S.libLayout = b.dataset.l; app.saveS(); $$('button', r).forEach((x) => x.classList.toggle('on', x === b)); rerenderTrees(); }; return r; };
+  menu([{ header: 'Sort by' }, ...LIB_SORTS.map(([k, l]) => ({ label: l, checked: (app.S.libSort || 'recent') === k, action: () => { app.S.libSort = k; app.saveS(); rerenderTrees(); } })),
+    '-', { header: 'Show' }, ...LIB_VIEWS.map(([k, l]) => ({ label: l, checked: (app.S.libView || 'all') === k, action: () => { app.S.libView = k; app.saveS(); rerenderTrees(); } })),
+    '-', { header: 'View as' }, { el: viewRow }], at);
 }
 function wireTree(root) {
   root.addEventListener('click', (e) => {
@@ -559,10 +596,11 @@ function wireTree(root) {
     clear(); rerenderTrees();
   });
 }
-export function rerenderTrees() {
+export function rerenderTrees(typing) {
   const t = $('#tree'); if (t) { const st = t.parentElement.scrollTop; t.innerHTML = ''; t.appendChild(treeEl(null)); t.parentElement.scrollTop = st; }
-  if (app.view === 'library') refresh();
-  const lc = $('#likedCount'); if (lc) lc.textContent = `Playlist • ${plural(likedIds().length, 'song')}`;
+  const st = $('#sideTools'); if (st && !typing) { st.innerHTML = ''; st.appendChild(libToolsEl()); }
+  const lt = $('#libPageTree'); if (lt) { lt.innerHTML = ''; lt.appendChild(treeEl(null, true)); const bar = $('#libPageTools'); if (bar && !typing) { bar.innerHTML = ''; bar.appendChild(libToolsEl()); } }
+  $$('.likedCount').forEach((lc) => (lc.textContent = `Playlist • ${plural(likedIds().length, 'song')}`));
   import('./core.js').then((c) => c.markNav());
 }
 export function nodeMenu(id, at) {

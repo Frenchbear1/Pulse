@@ -14,7 +14,7 @@ export const DEFAULTS = {
   npView: 'auto',
   gest: { right: 'queue', left: 'like', miniSwipe: true, miniUp: true, npDown: true, artSwipe: true, artDouble: true, haptics: true }
 };
-export const VERSION = '1.2.0';
+export const VERSION = '1.3.0';
 export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
@@ -185,6 +185,7 @@ function buildMenu(items, mobile, opts) {
     if (!it) continue;
     if (it === '-') { m.appendChild(h('<div class="sep"></div>')); continue; }
     if (it.header) { m.appendChild(h(`<div class="mh">${esc(it.header)}</div>`)); continue; }
+    if (it.el) { m.appendChild(typeof it.el === 'function' ? it.el() : it.el); continue; }
     const el = h(`<div class="mi${it.danger ? ' danger' : ''}${it.checked ? ' checked' : ''}" ${it.filter ? `data-f="${esc(it.filter.toLowerCase())}"` : ''}>${it.icon ? ico(it.icon) : ''}<span>${esc(it.label)}</span>${it.sub ? `<span class="sub">${ico('fwd')}</span>` : ''}${it.kbd ? `<span class="kbd">${esc(it.kbd)}</span>` : ''}</div>`);
     if (it.indent) el.style.paddingLeft = 10 + it.indent * 16 + 'px';
     el.addEventListener('click', (e) => {
