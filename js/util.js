@@ -78,7 +78,27 @@ export function dominantColor(img) {
 
 // Resize image bytes to jpeg blobs (big + small) and get a color.
 // Tries <img>, then createImageBitmap, then falls back to the original bytes.
+let _cw = null, _cwOk = true, _cwSeq = 0; const _cwWait = new Map();
+function coverWorker() {
+  if (!_cwOk || typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return null;
+  if (_cw) return _cw;
+  try {
+    _cw = new Worker(new URL('./coverworker.js', import.meta.url));
+    _cw.onmessage = (e) => { const w = _cwWait.get(e.data.id); if (w) { _cwWait.delete(e.data.id); w(e.data); } };
+    _cw.onerror = () => { _cwOk = false; for (const w of _cwWait.values()) w({ error: 'worker failed' }); _cwWait.clear(); };
+    return _cw;
+  } catch { _cwOk = false; return null; }
+}
 export async function processCover(bytes, mime) {
+  const w = coverWorker();
+  if (w) {
+    const id = ++_cwSeq; const copy = bytes.slice();
+    const res = await new Promise((ok) => { _cwWait.set(id, ok); w.postMessage({ id, bytes: copy, mime }, [copy.buffer]); setTimeout(() => { if (_cwWait.has(id)) { _cwWait.delete(id); ok({ error: 'timeout' }); } }, 8000); });
+    if (!res.error && res.big && res.small) return { big: res.big, small: res.small, color: res.color };
+  }
+  return processCoverMain(bytes, mime);
+}
+async function processCoverMain(bytes, mime) {
   const type = mime && mime.startsWith('image/') ? mime : (bytes[0] === 0x89 ? 'image/png' : 'image/jpeg');
   const blob = new Blob([bytes], { type });
   let src = null, w = 0, hgt = 0, url = null;

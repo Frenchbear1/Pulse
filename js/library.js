@@ -106,7 +106,7 @@ export const lib = {
     const r = await this.P.reader(stub);
     const tags = await readTags(r, stub.name);
     const t = Object.assign({}, stub, {
-      title: tags.title || stub.name, artist: tags.artist || '', albumArtist: tags.albumArtist || '', album: tags.album || (stub.dirs?.length ? stub.dirs[stub.dirs.length - 1] : ''),
+      title: tags.title || stub.name, artist: tags.artist || '', albumArtist: tags.albumArtist || '', album: tags.album || (stub.dirs?.length ? stub.dirs[stub.dirs.length - 1] : ''), albumGuess: !tags.album,
       year: tags.year || 0, genre: tags.genre || '', track: tags.track || 0, disc: tags.disc || 0, duration: tags.duration || 0,
       bitrate: tags.bitrate || 0, sampleRate: tags.sampleRate || 0, bitDepth: tags.bitDepth || 0, composer: tags.composer || '', bpm: tags.bpm || 0, isrc: tags.isrc || '',
       size: r.size, mtime: stub.mtime || 0, added: stub.added || Date.now(), cover: null, hasLyrics: !!tags.lyrics || !!stub.lrc
@@ -131,7 +131,9 @@ export const lib = {
   async runJobs(stubs, label, commit) {
     const st = this.scanning = { label, done: 0, total: stubs.length };
     this.emit('scan', st);
-    const flush = debounce(() => { this.reindex(); this.save(); }, 600);
+    // during big imports: refresh the index + save at most every few seconds, in idle time, without telling the UI
+    let lastFlush = 0; const idle = window.requestIdleCallback || ((f) => setTimeout(f, 50));
+    const flush = () => { if (Date.now() - lastFlush < 4000) return; lastFlush = Date.now(); idle(() => { this.reindex(true); this.save(); }, { timeout: 2000 }); };
     await pool(stubs, this.P.kind === 'web' ? 3 : 6, async (s) => {
       try { if (commit) await commit(s); const t = await this.parseInto(s); this.db.tracks[t.id] = t; if (t.cover) this.emit('cover', { id: t.id, key: t.cover }); }
       catch (e) { console.warn('parse failed', s.rel, e); }
@@ -216,7 +218,7 @@ export const lib = {
       if (tags.picture) key = await this.ensureCover(hashBytes(tags.picture.data), async () => tags.picture);
       if (!key && t.folderArt && this.P.kind === 'desktop') key = await this.ensureCover(hashStr((t.root || '') + '|' + (t.dirs || []).join('/') + '|' + t.folderArt), () => this.P.readFolderArt(t));
       // pick up tags that weren't there on the first read too
-      if (tags.title && (t.title === t.name || !t.artist)) { t.title = tags.title; t.artist = tags.artist || t.artist; t.album = tags.album || t.album; t.albumArtist = tags.albumArtist || t.albumArtist; t.year = tags.year || t.year; t.genre = tags.genre || t.genre; t.track = tags.track || t.track; }
+      if (tags.title && (t.title === t.name || !t.artist)) { t.title = tags.title; t.artist = tags.artist || t.artist; t.album = tags.album || t.album; if (tags.album) t.albumGuess = false; t.albumArtist = tags.albumArtist || t.albumArtist; t.year = tags.year || t.year; t.genre = tags.genre || t.genre; t.track = tags.track || t.track; }
       if (tags.lyrics && !this.db.lyrics[id]) { this.db.lyrics[id] = tags.lyrics; t.hasLyrics = true; }
       if (tags.isrc && !t.isrc) t.isrc = tags.isrc;
       if (key && this.db.tracks[id]) {

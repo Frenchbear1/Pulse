@@ -1,5 +1,5 @@
 // All page views + the virtualized track list + track/playlist actions.
-import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS, VERSION, checkForUpdate } from './core.js';
+import { app, lib, player, toast, go, menu, modal, closeLayer, prompt, confirmBox, pickImage, copyText, coverImg, collectionCover, genCover, hydrate, ico, refresh, burst, setLikeBtn, applyTheme, applyPreset, PRESETS, DEFAULTS, VERSION, checkForUpdate, haptic, SWIPE_ACTIONS } from './core.js';
 import { $, $$, esc, h, fmtTime, fmtLong, fmtBytes, norm, sortKey, debounce } from './util.js';
 import { EQ_PRESETS } from './player.js';
 import { albumKeyOf, primaryArtist } from './library.js';
@@ -91,6 +91,7 @@ export function trackList(ids, o = {}) {
   v.addEventListener('dblclick', (e) => { const i = idxOf(e); if (i >= 0 && !e.target.closest('button,a')) play(i); });
   v.addEventListener('contextmenu', (e) => { const i = idxOf(e); if (i < 0) return; e.preventDefault(); if (!sel.has(i)) setSel(i); trackMenu(sel.size > 1 ? selIds() : [ids[i]], { x: e.clientX, y: e.clientY }, { playlist: o.playlistId, indices: sel.size > 1 ? [...sel] : [i] }); });
   longPress(v, (e) => { const i = idxOf(e); if (i >= 0) trackMenu([ids[i]], { x: 0, y: 0 }, { playlist: o.playlistId, indices: [i] }); });
+  rowSwipes(v, (row) => ids[+row.dataset.i]);
   // drag & drop: to sidebar playlists, and reorder within playlists
   v.addEventListener('dragstart', (e) => {
     const i = idxOf(e); if (i < 0) return; if (!sel.has(i)) setSel(i);
@@ -119,6 +120,36 @@ function longPress(el, fn) {
   el.addEventListener('touchend', cancel); el.addEventListener('touchcancel', cancel);
 }
 export { longPress };
+// Swipe a song row: right → queue (default), left → like. Locks to horizontal so scrolling still works.
+function rowSwipes(v, idFor) {
+  let row = null, sx = 0, sy = 0, dx = 0, lock = null, bg = null;
+  const G = () => app.S.gest || {};
+  const reset = (animate) => { if (!row) return; const r = row; r.style.transition = animate ? 'transform .3s cubic-bezier(.2,.9,.3,1)' : ''; r.style.transform = ''; const b = bg; setTimeout(() => { r.style.transition = ''; r.classList.remove('swiping'); b?.remove(); }, animate ? 300 : 0); row = null; bg = null; lock = null; };
+  v.addEventListener('touchstart', (e) => { if (e.touches.length !== 1) return; const r = e.target.closest('.trow'); if (!r) return; row = r; sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; lock = null; }, { passive: true });
+  v.addEventListener('touchmove', (e) => {
+    if (!row) return; const x = e.touches[0].clientX - sx, y = e.touches[0].clientY - sy;
+    if (!lock) { if (Math.abs(x) < 8 && Math.abs(y) < 8) return; lock = Math.abs(x) > Math.abs(y) * 1.3 ? 'h' : 'v'; }
+    if (lock !== 'h') return;
+    const dir = x > 0 ? 'right' : 'left'; const act = G()[dir] || 'off'; if (act === 'off') return;
+    e.preventDefault(); dx = x;
+    if (!bg) { bg = document.createElement('div'); bg.className = 'swipe-bg'; bg.style.top = row.style.top; v.insertBefore(bg, row); row.classList.add('swiping'); }
+    const [label, icon] = SWIPE_ACTIONS[act] || SWIPE_ACTIONS.off; const id = idFor(row); const liked = act === 'like' && lib.isLiked(id);
+    bg.className = `swipe-bg ${dir} ${Math.abs(dx) > 80 ? 'armed' : ''}`; bg.innerHTML = `<span>${ico(liked ? 'heart' : icon)}${liked ? 'Unlike' : label}</span>`;
+    if (Math.abs(dx) > 80 && !row._armed) { row._armed = true; haptic(6); } else if (Math.abs(dx) <= 80) row._armed = false;
+    row.style.transform = `translateX(${Math.sign(dx) * Math.min(Math.abs(dx), 140 + Math.max(0, Math.abs(dx) - 140) * 0.25)}px)`;
+  }, { passive: false });
+  v.addEventListener('touchend', () => {
+    if (!row) return; if (lock !== 'h' || Math.abs(dx) <= 80) { reset(true); return; }
+    const id = idFor(row); const act = G()[dx > 0 ? 'right' : 'left'];
+    row.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); }, { capture: true, once: true });
+    if (act === 'queue') { player.addToQueue([id]); toast('Added to queue'); }
+    else if (act === 'next') { player.playNext([id]); toast('Playing next'); }
+    else if (act === 'like') { lib.like(id); toast(lib.isLiked(id) ? 'Added to Liked Songs' : 'Removed from Liked Songs'); const b = row.querySelector('.lk'); setLikeBtn(b, lib.isLiked(id)); }
+    else if (act === 'playlist') { const r = row; setTimeout(() => menu(playlistPicker([id]), { x: 0, y: 0 }), 200); }
+    haptic(12); reset(true);
+  });
+  v.addEventListener('touchcancel', () => reset(true));
+}
 function artistLinks(t) {
   const names = String(t.artist || 'Unknown Artist').split(/\s*(;|,| feat\.? | ft\.? | & )\s*/i);
   return names.map((n, i) => (i % 2 ? esc(n.trim() === ';' ? ',' : n) + ' ' : `<a data-artist="${esc(norm(n))}">${esc(n)}</a>`)).join('');
@@ -416,8 +447,9 @@ R.folders = ({ key = '' }) => {
 // LIBRARY (tiered playlists & folders)
 // =====================================================================
 R.library = ({ tab = 'all' }) => {
-  const el = h(`<div class="page"><div class="page-h"><h1>Your Library</h1><button class="ib" data-new title="Create">${ico('plus')}</button></div></div>`);
+  const el = h(`<div class="page"><div class="page-h"><h1>Your Library</h1><button class="pill" data-sort>${ico('sort')}${(LIB_SORTS.find((x) => x[0] === (app.S.libSort || 'custom')) || LIB_SORTS[0])[1]}</button><button class="ib" data-new title="Create">${ico('plus')}</button></div></div>`);
   el.querySelector('[data-new]').onclick = (e) => createMenu({ el: e.currentTarget, right: true });
+  el.querySelector('[data-sort]').onclick = (e) => libSortMenu({ el: e.currentTarget, right: true });
   const tabs = [['all', 'Playlists'], ['songs', 'Songs'], ['albums', 'Albums'], ['artists', 'Artists'], ['folders', 'Folders'], ['liked', 'Liked']];
   const chips = h(`<div class="chips lib-tabs">${tabs.map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</a>`).join('')}</div>`);
   chips.addEventListener('click', (e) => { const c = e.target.closest('[data-t]'); if (!c) return; const t = c.dataset.t; if (t === 'all') return; go(t); });
@@ -451,27 +483,51 @@ function importM3U() {
 // Tree (used by sidebar and mobile library). Unlimited depth, drag to nest/reorder.
 const openState = new Set(JSON.parse(localStorage.getItem('pulse.open') || '[]'));
 const saveOpen = () => localStorage.setItem('pulse.open', JSON.stringify([...openState]));
+// Library ordering: pinned first, then the chosen sort (custom = your drag order)
+export const LIB_SORTS = [['custom', 'Custom order'], ['recent', 'Recently played'], ['added', 'Recently added'], ['alpha', 'Alphabetical'], ['plays', 'Most played']];
+export const LIB_VIEWS = [['all', 'Everything'], ['playlists', 'Playlists only'], ['folders', 'Folders only'], ['pinned', 'Pinned']];
+function sortNodes(ids) {
+  const k = app.S.libSort || 'custom'; const N = (id) => lib.node(id);
+  const by = { recent: (a, b) => (N(b).lastPlayed || 0) - (N(a).lastPlayed || 0), added: (a, b) => (N(b).created || 0) - (N(a).created || 0), alpha: (a, b) => sortKey(N(a).name).localeCompare(sortKey(N(b).name)), plays: (a, b) => (N(b).plays || 0) - (N(a).plays || 0) }[k];
+  const list = ids.filter((id) => N(id));
+  const pinned = list.filter((id) => N(id).pinned).sort((a, b) => (N(a).pinned || 0) - (N(b).pinned || 0));
+  const rest = list.filter((id) => !N(id).pinned); if (by) rest.sort(by);
+  return [...pinned, ...rest];
+}
+function nodeRow(n, depth) {
+  const id = n.id; const ids = n.type === 'playlist' ? n.tracks : null; const isOpen = openState.has(id);
+  const cover = n.type === 'folder' && !n.cover ? `<span class="sw sw-folder">${ico('folder')}</span>` : `<span class="sw">${collectionCover(n, ids || lib.nodeTracks(id))}</span>`;
+  const playingHere = player.source?.type === 'node' && player.source.id === id;
+  return h(`<a class="tnode ${isOpen ? 'open' : ''} ${n.type}" data-id="${id}" draggable="true" style="padding-left:${8 + depth * 18}px">${cover}<span class="t"><b>${esc(n.name)}</b><small>${n.pinned ? `<svg class="pinned"><use href="#i-pin"/></svg>` : ''}${n.type === 'folder' ? `Folder • ${plural(n.children.length, 'item')}` : `Playlist • ${plural(n.tracks.length, 'song')}`}</small></span>${playingHere ? `<span class="eq-mini ${player.playing ? '' : 'paused'}"><i></i><i></i><i></i></span>` : ''}${n.type === 'folder' ? `<span class="caret" title="${isOpen ? 'Collapse' : 'Expand'}">${ico('fwd')}</span>` : ''}</a>`);
+}
 export function treeEl(parent = null, big = false) {
   const wrap = h('<div class="tree-level"></div>');
-  for (const id of lib.children(parent)) {
-    const n = lib.node(id); if (!n) continue;
-    const depth = lib.nodePath(id).length - 1;
-    const ids = n.type === 'playlist' ? n.tracks : null;
-    const isOpen = openState.has(id);
-    const cover = n.type === 'folder' && !n.cover ? `<span class="sw">${ico(isOpen ? 'folder' : 'folder')}</span>` : `<span class="sw">${collectionCover(n, ids || lib.nodeTracks(id))}</span>`;
-    const playingHere = player.source?.type === 'node' && player.source.id === id;
-    const row = h(`<a class="tnode ${isOpen ? 'open' : ''}" data-id="${id}" draggable="true" style="padding-left:${8 + depth * 14}px"><span class="caret ${n.type === 'folder' ? '' : 'leaf'}">${ico('fwd')}</span>${cover}<span class="t"><b>${esc(n.name)}</b><small>${n.type === 'folder' ? `Folder • ${plural(n.children.length, 'item')}` : `Playlist • ${plural(n.tracks.length, 'song')}`}</small></span>${playingHere ? `<span class="eq-mini ${player.playing ? '' : 'paused'}"><i></i><i></i><i></i></span>` : ''}</a>`);
-    wrap.appendChild(row);
-    if (n.type === 'folder' && isOpen) { const kids = treeEl(id, big); kids.classList.add('tchildren'); wrap.appendChild(kids); }
+  const view = app.S.libView || 'all';
+  if (parent === null && (view === 'playlists' || view === 'pinned')) {
+    // flat views across every folder level
+    let all = Object.values(lib.db.nodes).filter((n) => (view === 'pinned' ? n.pinned : n.type === 'playlist')).map((n) => n.id);
+    for (const id of sortNodes(all)) wrap.appendChild(nodeRow(lib.node(id), 0));
+    if (!all.length) wrap.appendChild(h(`<div class="tree-empty">${view === 'pinned' ? 'Pin playlists or folders from their ⋯ menu to keep them here.' : 'No playlists yet.'}</div>`));
+  } else {
+    for (const id of sortNodes(lib.children(parent))) {
+      const n = lib.node(id); if (!n) continue;
+      if (view === 'folders' && n.type !== 'folder') continue;
+      const depth = lib.nodePath(id).length - 1;
+      wrap.appendChild(nodeRow(n, depth));
+      if (n.type === 'folder' && openState.has(id)) { const kids = treeEl(id, big); kids.classList.add('tchildren'); kids.style.setProperty('--line-x', 8 + depth * 18 + 23 + 'px'); wrap.appendChild(kids); }
+    }
   }
   if (parent === null) wireTree(wrap);
   hydrate(wrap);
   return wrap;
 }
+export function libSortMenu(at) {
+  menu([{ header: 'Sort by' }, ...LIB_SORTS.map(([k, l]) => ({ label: l, checked: (app.S.libSort || 'custom') === k, action: () => { app.S.libSort = k; app.saveS(); rerenderTrees(); } })), '-', { header: 'Show' }, ...LIB_VIEWS.map(([k, l]) => ({ label: l, checked: (app.S.libView || 'all') === k, action: () => { app.S.libView = k; app.saveS(); rerenderTrees(); } }))], at);
+}
 function wireTree(root) {
   root.addEventListener('click', (e) => {
     const row = e.target.closest('.tnode'); if (!row) return; const id = row.dataset.id; const n = lib.node(id);
-    if (e.target.closest('.caret') && n.type === 'folder') { e.preventDefault(); openState.has(id) ? openState.delete(id) : openState.add(id); saveOpen(); rerenderTrees(); return; }
+    if ((e.target.closest('.caret') || (e.detail === 2 && false)) && n.type === 'folder') { e.preventDefault(); openState.has(id) ? openState.delete(id) : openState.add(id); saveOpen(); rerenderTrees(); return; }
     go('node', { id });
   });
   root.addEventListener('contextmenu', (e) => { const row = e.target.closest('.tnode'); if (!row) return; e.preventDefault(); nodeMenu(row.dataset.id, { x: e.clientX, y: e.clientY }); });
@@ -519,8 +575,9 @@ export function nodeMenu(id, at) {
     n.type === 'folder' && { label: 'New playlist inside', icon: 'playlist', action: async () => { const nm = await prompt('New playlist', '', 'Playlist name'); if (nm) { lib.createNode('playlist', nm, id); openState.add(id); saveOpen(); rerenderTrees(); } } },
     n.type === 'folder' && { label: 'New folder inside', icon: 'folder', action: async () => { const nm = await prompt('New folder', '', 'Folder name'); if (nm) { lib.createNode('folder', nm, id); openState.add(id); saveOpen(); rerenderTrees(); } } },
     { label: 'Edit details', icon: 'edit', action: () => editNode(id) },
+    { label: n.pinned ? 'Unpin' : 'Pin to top', icon: 'pin', action: () => { n.pinned = n.pinned ? 0 : Date.now(); lib.save(); lib.emit('nodes'); rerenderTrees(); toast(n.pinned ? 'Pinned to the top' : 'Unpinned'); } },
+    { label: n.type === 'folder' ? 'Move folder to' : 'Move to folder', icon: 'folder', sub: () => moveTargets(id) },
     { label: 'Rename', icon: 'edit', action: async () => { const nm = await prompt('Rename', n.name); if (nm) { lib.renameNode(id, nm); rerenderTrees(); if (app.view === 'node') refresh(); } } },
-    { label: 'Move to', icon: 'folder', sub: () => moveTargets(id) },
     n.spotify && { label: 'Spotify matches & missing songs', icon: 'spark', action: () => import('./spotify.js').then((m) => m.openSpotifyReview(id)) },
     n.type === 'playlist' && { label: 'Generate AI cover prompt', icon: 'spark', action: () => aiPromptModal(id) },
     n.type === 'playlist' && { label: 'Export as M3U', icon: 'export', action: () => { const blob = new Blob([lib.exportM3U(id)], { type: 'audio/x-mpegurl' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = n.name + '.m3u'; a.click(); } },
@@ -531,7 +588,7 @@ export function nodeMenu(id, at) {
   menu(items, at);
 }
 function moveTargets(id) {
-  const items = [{ label: 'Top level', icon: 'library', action: () => { lib.moveNode(id, null); rerenderTrees(); } }, '-'];
+  const items = [{ label: 'New folder…', icon: 'plus', action: async () => { const nm = await prompt('New folder', '', 'Folder name'); if (!nm) return; const cur = lib.node(id); const f = lib.createNode('folder', nm, cur.parent || null); lib.moveNode(id, f.id); openState.add(f.id); saveOpen(); rerenderTrees(); toast(`Moved into “${nm}”`); } }, { label: 'Top level', icon: 'library', action: () => { lib.moveNode(id, null); rerenderTrees(); } }, '-'];
   const walk = (list, d) => { for (const x of list) { const n = lib.node(x); if (!n || n.type !== 'folder' || x === id || lib.isAncestor(id, x)) continue; items.push({ label: n.name, icon: 'folder', indent: d, action: () => { lib.moveNode(id, x); openState.add(x); saveOpen(); rerenderTrees(); } }); walk(n.children, d + 1); } };
   walk(lib.db.rootNodes, 0);
   return items;
@@ -551,7 +608,7 @@ R.node = ({ id }) => {
   const extra = `<button class="ib" data-more title="More">${ico('more')}</button>${n.type === 'playlist' ? `<button class="ib" data-addsongs title="Add songs">${ico('plus')}</button>` : `<button class="ib" data-newin title="Add inside">${ico('plus')}</button>`}`;
   let el;
   if (n.type === 'playlist') {
-    el = listPage({ title: n.name, ids, source: src, hero, playlistId: id, reorder: true, extraActions: extra, emptyHTML: `<h3>Let's find something for your playlist</h3><p>Drag songs onto it in the sidebar, use "Add to playlist" from any song's menu, or search below.</p>` });
+    el = listPage({ title: n.name, ids, source: src, hero, playlistId: id, reorder: true, extraActions: extra, addedAt: n.addedAt && Object.keys(n.addedAt).length ? (tid) => n.addedAt[tid] : null, emptyHTML: `<h3>Let's find something for your playlist</h3><p>Drag songs onto it in the sidebar, use "Add to playlist" from any song's menu, or search below.</p>` });
     if (!ids.length) el.appendChild(addSongsPanel(id));
   } else {
     el = h('<div></div>'); el.appendChild(hero); el.appendChild(actionsEl(ids, src, n.name, extra));
@@ -682,7 +739,16 @@ R.settings = () => {
   const presets = `<div class="presets">${Object.entries(PRESETS).map(([k, p]) => `<button class="preset ${S.preset === k ? 'on' : ''}" data-preset="${k}" style="--pbg:${p.pv[0]};--pa:${p.pv[1]};--pb:${p.pv[2]};--pglass:${p.theme === 'light' ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.1)'}"><div class="pv"><i></i></div><b>${p.name}</b></button>`).join('')}</div>`;
   const sw1 = `<div class="swatches">${ACCENTS.map((c) => `<button data-acc="${c}" style="background:${c}" class="${S.accent === c && S.accentMode === 'fixed' ? 'on' : ''}" title="${c}"></button>`).join('')}<label title="Any color"><input type="color" value="${S.accent}" data-acccustom></label></div>`;
   const sw2 = `<div class="swatches"><button class="pill ${S.accent2 === 'auto' ? 'on' : ''}" data-acc2="auto" style="width:auto;height:28px;border-radius:999px;padding:0 12px;font-size:12px">Auto</button>${ACCENTS.map((c) => `<button data-acc2="${c}" style="background:${c}" class="${S.accent2 === c ? 'on' : ''}"></button>`).join('')}<label title="Any color"><input type="color" value="${S.accent2 === 'auto' ? '#22d3ee' : S.accent2}" data-acc2custom></label></div>`;
-  let look = `<h3>Theme studio</h3><div class="set-group">${presets}` +
+  const cur = player.track?.cover; const artURL = cur ? app.P.coverURLSync?.(cur, true) : null;
+  const preview = `<div class="tprev-wrap"><div class="tprev" data-tprev>
+      <div class="tp-desk"></div>
+      <div class="tp-bg"><div class="tp-o a"></div><div class="tp-o b"></div><div class="tp-art"${artURL ? ` style="background-image:url(${artURL})"` : ''} data-tpart></div><div class="tp-wall"${S.wallpaper ? ` style="background-image:url(${S.wallpaper})"` : ''}></div></div>
+      <div class="tp-shapes"><i class="s1"></i><i class="s2"></i><i class="s3"></i><b>Pulse</b></div>
+      <div class="tp-side tp-glass"><span class="r on"></span><span class="r"></span><span class="r"></span><span class="r short"></span></div>
+      <div class="tp-main tp-glass"><div class="tp-card"><div class="tp-cv"></div><span class="l"></span><span class="l s"></span></div><div class="tp-card"><div class="tp-cv b"></div><span class="l"></span><span class="l s"></span></div><div class="tp-menu tp-glass"><span></span><span></span><span></span></div></div>
+      <div class="tp-bar tp-glass"><div class="tp-cv sm"></div><span class="l"></span><div class="tp-play"></div><div class="tp-prog"><i></i></div></div>
+    </div><small>Live preview — it changes as you move the sliders below</small></div>`;
+  let look = `<h3>Theme studio</h3><div class="set-group">${preview}${presets}` +
     opt('Mode', '', segOf('theme', [['dark', 'Dark'], ['midnight', 'Midnight'], ['black', 'Black'], ['light', 'Light'], ['auto', 'Auto']])) +
     opt('Accent', 'From album art changes the whole look with every song', segOf('accentMode', [['dynamic', 'From album art'], ['fixed', 'My color']])) +
     opt('Accent color', '', sw1) +
@@ -698,17 +764,35 @@ R.settings = () => {
   look += '</div>';
   look += `<h3>Motion & layout</h3><div class="set-group">` + opt('Animations', '', segOf('anim', [['full', 'Full'], ['low', 'Subtle'], ['off', 'Off']])) + opt('Compact rows', 'Fit more songs on screen', tog('compact', S.compact)) + opt('Blur inactive lyric lines', '', tog('blurLyrics', S.blurLyrics)) + '</div>';
   el.appendChild(h(`<div>${look}</div>`));
+  if (cur && !artURL) app.P.coverURL(cur, true).then((u) => { const a = el.querySelector('[data-tpart]'); if (u && a) a.style.backgroundImage = `url(${u})`; });
   // Playback
   let pb = `<h3>Playback</h3><div class="set-group">` +
     opt('Crossfade', 'Blend the end of one song into the next', `<input type="range" min="0" max="12" step="1" value="${S.crossfade}" data-range="crossfade"><span class="val">${S.crossfade ? S.crossfade + 's' : 'Off'}</span>`) +
     opt('Smooth pause & play', 'Quick fade instead of a hard stop', tog('fadePause', S.fadePause)) +
     opt('Volume leveler', 'Evens out loud and quiet songs', tog('leveler', S.leveler)) +
     opt('Equalizer & sound', 'EQ, presets, speed, pitch', `<button class="pill" data-sound>${ico('eq')}Open</button>`);
+  if (!app.isMobile) pb += opt('Now playing view', 'Clicking the cover in the player bar opens this. Auto uses a side panel on wide windows, full screen on small ones. The ⤢ button is always full screen.', segOf('npView', [['auto', 'Auto'], ['panel', 'Side panel'], ['full', 'Full screen']]));
   if (!app.isDesktop) pb += opt('Audio effects engine', 'Needed for EQ, crossfade and the visualizer. On iPhone it can stop background playback when locked — leave on Auto unless you want effects.', `<div class="seg" data-seg="engine">${[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button data-v="${k}" class="${S.engine === k ? 'on' : ''}">${l}</button>`).join('')}</div>`);
   pb += '</div>';
   el.appendChild(h(`<div>${pb}</div>`));
   if (app.isDesktop) {
     el.appendChild(h(`<div><h3>Window</h3><div class="set-group">${opt('Close button minimizes to tray', 'Keep playing in the background; quit from the tray icon', tog('closeToTray', S.closeToTray))}${opt('Mini player', 'Layouts, transparency, blur, always-on-top', `<button class="pill" data-minicustom>${ico('palette')}Customize</button><button class="pill" data-gomini>${ico('mini')}Open</button>`)}</div></div>`));
+  }
+  // gestures
+  if (!app.isDesktop) {
+    const G = S.gest; const actSel = (dir) => `<select class="inp" data-gest-sel="${dir}" style="width:170px;height:36px">${Object.entries(SWIPE_ACTIONS).map(([k, [l]]) => `<option value="${k}" ${G[dir] === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    const gt = (k) => `<div class="tog ${G[k] ? 'on' : ''}" data-gest="${k}"></div>`;
+    el.appendChild(h(`<div><h3>Gestures</h3><div class="set-group">
+      ${opt('Swipe a song right', 'Works in every song list', actSel('right'))}
+      ${opt('Swipe a song left', '', actSel('left'))}
+      ${opt('Long-press a song', 'Opens the song menu: play next, add to playlist, go to album…', '<span style="color:var(--tx3);font-size:13px">Always on</span>')}
+      ${opt('Swipe the mini player', 'Left for next song, right for previous', gt('miniSwipe'))}
+      ${opt('Swipe up on the mini player', 'Opens Now Playing', gt('miniUp'))}
+      ${opt('Swipe down on Now Playing', 'Closes it', gt('npDown'))}
+      ${opt('Swipe the cover in Now Playing', 'Left for next, right for previous', gt('artSwipe'))}
+      ${opt('Double-tap the cover', 'Like the song', gt('artDouble'))}
+      ${opt('Haptic feedback', 'A small tap when a gesture triggers (Android; iPhone doesn’t allow it in web apps)', gt('haptics'))}
+    </div></div>`));
   }
   // shortcuts
   if (!app.isMobile) {
@@ -720,6 +804,7 @@ R.settings = () => {
   // wiring
   el.addEventListener('click', async (e) => {
     const t = e.target;
+    const gg = t.closest('[data-gest]'); if (gg) { const k = gg.dataset.gest; S.gest[k] = !S.gest[k]; gg.classList.toggle('on', S.gest[k]); app.saveS(); return; }
     const tg = t.closest('[data-tog]'); if (tg) { const k = tg.dataset.tog; S[k] = !S[k]; tg.classList.toggle('on', S[k]); app.saveS(); applyTheme(); if (k === 'leveler') player.applyLeveler(); return; }
     const pr = t.closest('[data-preset]'); if (pr) { applyPreset(pr.dataset.preset); refresh(); return; }
     const a2 = t.closest('[data-acc2]'); if (a2) { S.accent2 = a2.dataset.acc2; S.preset = 'custom'; app.saveS(); applyTheme(); refresh(); return; }
@@ -745,6 +830,7 @@ R.settings = () => {
   });
   el.addEventListener('input', (e) => {
     const r = e.target.closest('[data-range]'); if (r) { const k = r.dataset.range; S[k] = +r.value; if (THEME_KEYS.includes(k)) { S.preset = 'custom'; $$('.preset.on', el).forEach((x) => x.classList.remove('on')); } const v = r.nextElementSibling; if (v?.classList.contains('val')) v.textContent = fmtVal(r.dataset.fmt || (k === 'crossfade' ? 's' : 'pct'), S[k]); app.saveS(); applyTheme(); }
+    if (e.target.matches('[data-gest-sel]')) { S.gest[e.target.dataset.gestSel] = e.target.value; app.saveS(); return; }
     if (e.target.matches('[data-acccustom]')) { S.accent = e.target.value; S.accentMode = 'fixed'; S.preset = 'custom'; app.saveS(); applyTheme(); }
     if (e.target.matches('[data-acc2custom]')) { S.accent2 = e.target.value; S.preset = 'custom'; app.saveS(); applyTheme(); }
   });

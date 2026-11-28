@@ -1,8 +1,9 @@
 // Pulse — boot + shell wiring
-import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, currentColor, setBgArt, coverImg, hydrate, go, back, fwd, refresh, refreshSoon, markNav, menu, closeLayer, setImg, setLikeBtn, burst, marquee, slider, ico } from './core.js';
+import { modal } from './core.js';
+import { app, lib, player, toast, loadSettings, applyTheme, applyAccent, currentColor, setBgArt, coverImg, hydrate, flip, haptic, go, back, fwd, refresh, refreshSoon, markNav, menu, closeLayer, setImg, setLikeBtn, burst, marquee, slider, ico } from './core.js';
 import { $, $$, fmtTime, debounce, throttle, clamp, norm } from './util.js';
 import { albumKeyOf, primaryArtist } from './library.js';
-import { trackMenu, albumKey, treeEl, rerenderTrees, createMenu, importMusic, addFolder } from './views.js';
+import { trackMenu, albumKey, treeEl, rerenderTrees, createMenu, importMusic, addFolder, libSortMenu } from './views.js';
 import * as NP from './np.js';
 import { autoFill } from './spotify.js';
 
@@ -32,7 +33,7 @@ async function boot() {
 
   // desktop: background rescan + folder watching
   if (isDesktop) {
-    setTimeout(async () => { if (app.S.rescanOnStart) await lib.rescanAll().catch((e) => console.warn(e)); if (app.S.watch) lib.db.roots.forEach((r) => P.watchRoot(r)); lib.wantCovers(Object.keys(lib.db.tracks), false); }, 900);
+    setTimeout(async () => { if (app.S.rescanOnStart) await lib.rescanAll().catch((e) => console.warn(e)); if (app.S.watch) lib.db.roots.forEach((r) => P.watchRoot(r)); lib.wantCovers(Object.keys(lib.db.tracks), false); setTimeout(checkLikedFolders, 1500); }, 900);
     P.on((type, d) => {
       if (type === 'fschange' && app.S.watch) lib.rescanAll();
       if (type === 'close') { if (app.S.closeToTray) P.win.hide(); else quit(); }
@@ -93,8 +94,8 @@ function updateVolume() {
 function updateTime() {
   const d = player.duration, c = player.time, f = d ? c / d : 0;
   seekS?.update(f); npSeekS?.update(f);
-  $('#tCur').textContent = fmtTime(c); $('#tDur').textContent = fmtTime(d);
-  $('#npCur').textContent = fmtTime(c); $('#npDur').textContent = d ? '-' + fmtTime(d - c) : '0:00';
+  flip($('#tCur'), fmtTime(c)); flip($('#tDur'), fmtTime(d));
+  flip($('#npCur'), fmtTime(c)); flip($('#npDur'), d ? '-' + fmtTime(d - c) : '0:00');
   $('.mb-prog div').style.width = f * 100 + '%';
   try { const el = player.el; if (el.buffered.length && d) { const b = el.buffered.end(el.buffered.length - 1) / d; $('#seek').style.setProperty('--b', b); $('#npSeekBar').style.setProperty('--b', b); } } catch {}
   NP.miniTime(); NP.npTick();
@@ -113,6 +114,7 @@ function wireShell() {
   $('#btnSide').onclick = () => { app.S.sideMini = !app.S.sideMini; app.saveS(); applyTheme(); };
   $('#btnSettings').onclick = () => go('settings');
   $('#sideNew').onclick = (e) => createMenu({ el: e.currentTarget });
+  $('#sideSort').onclick = (e) => libSortMenu({ el: e.currentTarget });
   const si = $('#searchInput');
   si.addEventListener('input', debounce(() => { if (app.view === 'search') { app.params.q = si.value; app.S.lastView = { view: 'search', params: { q: si.value } }; refresh(); } else go('search', { q: si.value }); }, 120));
   si.addEventListener('focus', () => { if (app.view !== 'search') go('search', { q: si.value }); });
@@ -123,8 +125,25 @@ function wireShell() {
   $('#cShuffle').onclick = () => player.toggleShuffle(); $('#cRepeat').onclick = () => player.cycleRepeat();
   const like = (btn) => { const t = player.track; if (!t) return; lib.like(t.id); if (lib.isLiked(t.id)) burst(btn); };
   $('#barLike').onclick = (e) => like(e.currentTarget); $('#mbLike').onclick = (e) => { e.stopPropagation(); like(e.currentTarget); };
-  $('#barArt').onclick = () => NP.openNP(); $('#bFull').onclick = () => NP.openNP();
+  $('#barArt').onclick = () => NP.showNowPlaying(); $('#bFull').onclick = () => NP.openNP(true);
   $('#mbar').onclick = () => NP.openNP();
+  // mini bar: swipe left/right to skip, swipe up to open Now Playing
+  { const mb = $('#mbar'); let sx = 0, sy = 0, lock = null, dx = 0; const meta = () => mb.querySelector('.mb-meta'), art = () => mb.querySelector('.mb-art');
+    mb.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; lock = null; dx = 0; }, { passive: true });
+    mb.addEventListener('touchmove', (e) => {
+      const x = e.touches[0].clientX - sx, y = e.touches[0].clientY - sy;
+      if (!lock) { if (Math.abs(x) < 8 && Math.abs(y) < 8) return; lock = Math.abs(x) > Math.abs(y) ? 'h' : 'v'; }
+      if (lock === 'h' && app.S.gest.miniSwipe) { e.preventDefault(); dx = x; for (const el of [meta(), art()]) { el.style.transition = 'none'; el.style.transform = `translateX(${x * 0.6}px)`; el.style.opacity = String(Math.max(0.2, 1 - Math.abs(x) / 220)); } }
+      if (lock === 'v' && app.S.gest.miniUp && y < 0) { e.preventDefault(); mb.style.transform = `translateY(${Math.max(-40, y * 0.4)}px)`; }
+    }, { passive: false });
+    mb.addEventListener('touchend', (e) => {
+      const y = e.changedTouches[0].clientY - sy;
+      for (const el of [meta(), art()]) { el.style.transition = 'transform .35s cubic-bezier(.2,.9,.3,1), opacity .3s'; el.style.transform = ''; el.style.opacity = ''; }
+      mb.style.transform = '';
+      if (lock === 'h' && app.S.gest.miniSwipe && Math.abs(dx) > 70) { mb.addEventListener('click', (ev) => { ev.stopPropagation(); }, { capture: true, once: true }); haptic(10); dx < 0 ? player.next() : player.prev(); }
+      else if (lock === 'v' && app.S.gest.miniUp && y < -40) { mb.addEventListener('click', (ev) => { ev.stopPropagation(); }, { capture: true, once: true }); NP.openNP(); }
+    });
+  }
   $('#barTitle').onclick = () => { const t = player.track; if (t) go('album', { key: albumKey(t) }); };
   $('#barArtist').onclick = () => { const t = player.track; if (t) go('artist', { key: albumKey(t).split('\u0001')[0] }); };
   $('#bar .bar-left').addEventListener('contextmenu', (e) => { const t = player.track; if (t) { e.preventDefault(); trackMenu([t.id], { x: e.clientX, y: e.clientY }); } });
@@ -141,7 +160,7 @@ function wireShell() {
   $('#panelClose').onclick = NP.closePanel;
   $$('[data-ptab]').forEach((b) => (b.onclick = () => NP.openPanel(b.dataset.ptab)));
 
-  const seekCfg = (el) => slider(el, { get: () => (player.duration ? player.time / player.duration : 0), set: (v) => player.seek(v * player.duration), preview: (v, hover) => { el.querySelector('.tip') && (el.querySelector('.tip').textContent = fmtTime(v * player.duration)); if (!hover && el.id === 'seek') $('#tCur').textContent = fmtTime(v * player.duration); } });
+  const seekCfg = (el) => slider(el, { get: () => (player.duration ? player.time / player.duration : 0), set: (v) => player.seek(v * player.duration), preview: (v, hover) => { el.querySelector('.tip') && (el.querySelector('.tip').textContent = fmtTime(v * player.duration)); if (!hover && el.id === 'seek') flip($('#tCur'), fmtTime(v * player.duration)); } });
   seekS = seekCfg($('#seek')); npSeekS = seekCfg($('#npSeekBar'));
   volS = slider($('#volume'), { get: () => app.S.volume, set: (v) => player.setVolume(v), preview: (v, hover) => { if (!hover) player.setVolume(v); } });
 
@@ -154,6 +173,7 @@ function wireShell() {
     else if (e === 'volume') updateVolume();
     else if (e === 'queue') { NP.onQueueChange(); saveSessionSoon(); prioritizeCovers(); }
     else if (e === 'settings') app.saveS();
+    else if (e === 'played') { const src = player.source; if (src?.type === 'node') { for (const n of lib.nodePath(src.id)) { n.lastPlayed = Date.now(); n.plays = (n.plays || 0) + 1; } lib.save(); } }
     else if (e === 'error') toast("Couldn't play that file — skipping");
     else if (e === 'sleepDone') toast('Sleep timer: paused playback');
   });
@@ -161,11 +181,12 @@ function wireShell() {
   lib.on((e, d) => {
     if (e === 'liked') { const t = player.track; if (t && t.id === d) { setLikeBtn($('#barLike'), lib.isLiked(d)); setLikeBtn($('#mbLike'), lib.isLiked(d)); NP.updateNP(); NP.updateMini(); } rerenderTreesSoon(); }
     if (e === 'nodes') rerenderTreesSoon();
-    if (e === 'scan') { const pill = $('#scanPill'); if (d) { pill.classList.remove('hidden'); pill.querySelector('.txt').textContent = `${d.label} • ${d.done.toLocaleString()} / ${d.total.toLocaleString()}`; } else { pill.classList.add('hidden'); if (pendingRefresh) { pendingRefresh = false; quietRefresh(); } } }
+    if (e === 'scan') { if (d) pill.progress(d.label, d.done, d.total); else { pill.finish(); setTimeout(checkLikedFolders, 1200); } }
     // Library changes land in the background: never re-render mid-scan, refresh once quietly at the end
     if (e === 'cover') { patchCover(d); return; }
     if (e === 'index' && d?.quiet) return;
-    if (e === 'index') { autoFill(); if (['home', 'songs', 'albums', 'artists', 'folders', 'library', 'search'].includes(app.view)) { if (lib.scanning || repairing) pendingRefresh = true; else quietRefresh(); } }
+    // never redraw what you're looking at because of background work; an empty page is the one exception
+    if (e === 'index') { if (!lib.scanning) autoFill(); if (['home', 'songs', 'albums', 'artists', 'folders', 'library', 'search', 'genre', 'liked'].includes(app.view)) { if (emptyBefore() && !lib.scanning) quietRefresh(); else pendingRefresh = true; } }
   });
 
   // window controls (desktop)
@@ -175,20 +196,27 @@ function wireShell() {
     const dragAreas = ['#dragZone', '.tb-drag', '#titlebar', '.np-top'];
     document.addEventListener('pointerdown', async (e) => {
       if (e.button !== 0) return; const z = e.target.closest(dragAreas.join(',')); if (!z || e.target.closest('button, input, a, label, .np-src')) return;
-      if (W._max && e.detail < 2) { // drag down from maximized: restore under the cursor, then keep dragging
-        const fx = e.clientX / innerWidth; const sx = e.screenX, sy = e.screenY;
-        const onMove = async (ev) => { if (Math.hypot(ev.screenX - sx, ev.screenY - sy) < 6) return; document.removeEventListener('pointermove', onMove); await W.restore({ x: ev.screenX, y: ev.screenY, fx }); W.drag(); };
-        document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', () => document.removeEventListener('pointermove', onMove), { once: true });
-        return;
-      }
+      if (W._max) return; // maximized stays put — use the button or double-click the bar to restore
       W.drag();
     });
     $('#titlebar').addEventListener('dblclick', (e) => { if (!e.target.closest('button, input, a, label')) $('#wMax').click(); });
     // resize grips (borderless window)
     $$('#grips .g').forEach((g) => g.addEventListener('pointerdown', async (e) => {
-      e.preventDefault(); g.setPointerCapture(e.pointerId); const mode = g.dataset.g; const s = await W.getSize(); const sx = e.screenX, sy = e.screenY;
-      const mv = throttle((ev) => { const w = mode.includes('r') ? Math.max(720, s.width + (ev.screenX - sx)) : s.width; const hh = mode.includes('b') ? Math.max(480, s.height + (ev.screenY - sy)) : s.height; W.setSize(w, hh, true); }, 16);
-      const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); };
+      if (W._max) return;
+      e.preventDefault(); g.setPointerCapture(e.pointerId);
+      const mode = g.dataset.g; const s = await W.getSize(); const pos = await W.getPos(); const sx = e.screenX, sy = e.screenY;
+      const mini = document.body.classList.contains('mini'); const minW = mini ? 180 : 720, minH = mini ? 40 : 480;
+      const dpr = devicePixelRatio || 1;
+      const mv = throttle((ev) => {
+        const dx = ev.screenX - sx, dy = ev.screenY - sy;
+        let w = s.width, hh = s.height, x = pos.x, y = pos.y;
+        if (mode.includes('r')) w = Math.max(minW, s.width + dx);
+        if (mode.includes('b')) hh = Math.max(minH, s.height + dy);
+        if (mode.includes('l')) { w = Math.max(minW, s.width - dx); x = pos.x + (s.width - w) * dpr; }
+        if (mode.includes('t')) { hh = Math.max(minH, s.height - dy); y = pos.y + (s.height - hh) * dpr; }
+        W.setSize(w, hh); if (x !== pos.x || y !== pos.y) W.move(x, y);
+      }, 16);
+      const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); if (mini) document.dispatchEvent(new CustomEvent('miniresized')); };
       g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up);
     }));
   }
@@ -262,12 +290,69 @@ function patchCover({ id, key }) {
   if (app.view === 'album' && app.params?.key === ak) { const ha = document.querySelector('.hero-art'); if (ha && !ha.querySelector('img')) { ha.querySelector(':scope > svg')?.remove(); ha.insertAdjacentHTML('afterbegin', coverImg(key, false)); hydrate(ha); } }
 }
 export async function autoRepairCovers() {
-  const pill = $('#scanPill'); pill.classList.remove('hidden'); repairing = true;
-  const res = await lib.repairCovers((d, t) => { pill.querySelector('.txt').textContent = `Finding covers • ${d.toLocaleString()} / ${t.toLocaleString()}`; }).catch((e) => { console.warn(e); return null; });
-  repairing = false; if (!lib.scanning) pill.classList.add('hidden');
+  repairing = true;
+  const res = await lib.repairCovers((d, t) => pill.progress('Finding covers', d, t)).catch((e) => { console.warn(e); return null; });
+  repairing = false; pill.finish(res?.fixed ? `Found ${res.fixed.toLocaleString()} cover${res.fixed === 1 ? '' : 's'}` : 'Covers checked');
   if (res?.fixed) updateBar();
   return res;
 }
+// The status pill: stays up long enough to read, counter never shifts the text, fades out gently
+const pill = {
+  el: null, shownAt: 0, hideT: 0, added: 0,
+  get node() { return (this.el ||= $('#scanPill')); },
+  progress(label, done, total) {
+    const n = this.node; clearTimeout(this.hideT);
+    if (!n.classList.contains('show')) { this.shownAt = Date.now(); n.classList.add('show'); }
+    n.classList.remove('done', 'has-new');
+    const lbl = n.querySelector('.lbl'); if (lbl.textContent !== label) lbl.textContent = label;
+    const cnt = n.querySelector('.cnt'); const w = String(total.toLocaleString()).length;
+    cnt.style.minWidth = (w * 2 + 3) + 'ch';
+    flip(cnt, `${done.toLocaleString().padStart(total.toLocaleString().length, ' ')} / ${total.toLocaleString()}`);
+    this.added = total;
+  },
+  finish(msg) {
+    const n = this.node; if (!n.classList.contains('show')) return;
+    const wait = Math.max(0, 900 - (Date.now() - this.shownAt));
+    clearTimeout(this.hideT);
+    this.hideT = setTimeout(() => {
+      n.classList.add('done'); n.querySelector('.lbl').textContent = msg || (pendingRefresh ? `${this.added.toLocaleString()} song${this.added === 1 ? '' : 's'} added` : 'Library up to date');
+      n.querySelector('.cnt').textContent = ''; n.querySelector('.cnt').style.minWidth = ''; n.querySelector('.cnt')._flip = null;
+      if (pendingRefresh && !emptyBefore()) { n.classList.add('has-new'); this.hideT = setTimeout(() => this.hide(), 9000); }
+      else { if (pendingRefresh) { pendingRefresh = false; quietRefresh(); } this.hideT = setTimeout(() => this.hide(), 1800); }
+    }, wait);
+  },
+  hide() { const n = this.node; n.classList.remove('show'); setTimeout(() => { if (!n.classList.contains('show')) n.classList.remove('done', 'has-new'); }, 500); }
+};
+// A folder called "Liked Songs" (or Liked / Favorites)? Offer to heart everything in it, optionally kept in sync.
+const LIKED_RE = /^(liked|liked songs|my liked songs|favou?rites|loved|loved tracks)$/i;
+let likedAsking = false;
+async function checkLikedFolders() {
+  if (likedAsking || !lib.idx.folders) return;
+  const S = app.S; S.likedFolders ||= {};
+  const found = []; const walk = (n) => { for (const c of n.children.values()) { if (LIKED_RE.test(c.name.trim())) found.push(c); walk(c); } }; walk(lib.idx.folders);
+  let changed = 0;
+  for (const f of found) {
+    const ids = lib.folderAllTracks(f); const st = S.likedFolders[f.key];
+    if (st === 'sync') { for (const id of ids) if (!lib.db.liked[id]) { const t = lib.track(id); lib.db.liked[id] = t?.mtime || t?.added || Date.now(); changed++; } continue; }
+    if (st || !ids.length || $('#layer').children.length) continue;
+    likedAsking = true;
+    const choice = await new Promise((res) => {
+      const m = modal(`<h2>Make these your Liked Songs?</h2>
+        <p style="margin:0 0 14px;opacity:.78;line-height:1.5">Pulse found a folder named <b>“${f.name.replace(/</g, '&lt;')}”</b> with <b>${ids.length.toLocaleString()} song${ids.length === 1 ? '' : 's'}</b>. Want to heart all of them so they show up in your Liked Songs?</p>
+        <div class="opt"><div class="l"><b>Keep in sync</b><small>Songs added to this folder later get liked automatically</small></div><div class="r"><div class="tog on" id="lkSync"></div></div></div>
+        <div class="row"><button class="pill" id="lkNo">Not now</button><button class="pill solid" id="lkYes">${ico('heart-f')}Like ${ids.length.toLocaleString()} songs</button></div>`);
+      const tg = m.querySelector('#lkSync'); tg.onclick = () => tg.classList.toggle('on');
+      m.querySelector('#lkNo').onclick = () => { closeLayer(); res('no'); };
+      m.querySelector('#lkYes').onclick = () => { const sync = tg.classList.contains('on'); closeLayer(); res(sync ? 'sync' : 'once'); };
+    });
+    likedAsking = false; S.likedFolders[f.key] = choice; app.saveS();
+    if (choice !== 'no') { let c = 0; for (const id of ids) if (!lib.db.liked[id]) { const t = lib.track(id); lib.db.liked[id] = t?.mtime || t?.added || Date.now(); c++; } changed += c; toast(`Added ${c.toLocaleString()} songs to Liked Songs`); }
+    break; // one question at a time
+  }
+  if (changed) { lib.save(); lib.emit('liked'); }
+}
+const emptyBefore = () => !document.querySelector('#view .trow, #view .card, #view .tile');
+document.addEventListener('click', (e) => { if (e.target.closest('#scanPill .refresh')) { pendingRefresh = false; quietRefresh(); pill.hide(); } });
 window.__pulseRepair = autoRepairCovers;
 
 boot().catch((e) => { console.error(e); document.body.classList.remove('booting'); document.getElementById('view').innerHTML = `<div class="page"><div class="empty"><h3>Pulse failed to start</h3><p>${String(e.message || e)}</p></div></div>`; });

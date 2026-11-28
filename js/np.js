@@ -1,5 +1,5 @@
 // Now Playing overlay, side panel (queue / lyrics / info), visualizer, sound panel, sleep timer, mini player.
-import { app, lib, player, toast, go, menu, modal, closeLayer, coverImg, hydrate, ico, setImg, setLikeBtn, burst, marquee, slider, applyAccent, hexToRgb } from './core.js';
+import { app, lib, player, toast, go, menu, modal, closeLayer, coverImg, hydrate, ico, setImg, setLikeBtn, burst, marquee, slider, applyAccent, hexToRgb, flip } from './core.js';
 import { $, $$, esc, h, fmtTime, clamp, debounce } from './util.js';
 import { EQ_FREQS, EQ_PRESETS } from './player.js';
 import { trackMenu, albumKey, longPress } from './views.js';
@@ -74,17 +74,35 @@ export function queueEl(dark) {
   el.addEventListener('dragend', () => { drag = null; over?.classList.remove('drop-above'); });
   return el;
 }
+// Spotify-style "Now playing" view in the side panel (used instead of full screen on wide windows)
 function infoEl() {
-  const t = player.track; if (!t) return h('<div class="empty"><p>Nothing playing.</p></div>');
-  const el = h(`<div><div class="np-card">${t.cover ? coverImg(t.cover, false) : ''}<div class="pad"><h3>${esc(t.title)}</h3><p>${esc(t.artist)}</p></div></div>
-    <dl class="kv">${[['Album', t.album], ['Year', t.year || ''], ['Genre', t.genre], ['Plays', lib.db.plays[t.id] || 0], ['Quality', [t.bitrate && t.bitrate + ' kbps', t.sampleRate && t.sampleRate / 1000 + ' kHz', t.bitDepth && t.bitDepth + '-bit', (t.name.split('.').pop() || '').toUpperCase()].filter(Boolean).join(' · ')], ['File', t.rel]].filter((r) => r[1] !== '' && r[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 6px"><button class="pill" data-al>${ico('album')}Album</button><button class="pill" data-ar>${ico('artist')}Artist</button><button class="pill" data-mo>${ico('more')}More</button></div></div>`);
+  const t = player.track; if (!t) return h('<div class="empty"><svg><use href="#i-note"/></svg><p>Nothing playing yet.</p></div>');
+  const liked = lib.isLiked(t.id);
+  const qual = [t.bitrate && t.bitrate + ' kbps', t.sampleRate && t.sampleRate / 1000 + ' kHz', t.bitDepth && t.bitDepth + '-bit'].filter(Boolean).join(' • ');
+  const next = [...player.upNext.map((id) => ({ id })), ...player.upcomingContext(3)].slice(0, 3);
+  const el = h(`<div class="npv">
+    <div class="npv-art">${t.cover ? coverImg(t.cover, false) : `<div class="npv-ph">${ico('note')}</div>`}</div>
+    <div class="npv-head"><div class="npv-meta"><div class="marq"><h2>${esc(t.title)}</h2></div><a data-ar>${esc(t.artist || 'Unknown artist')}</a></div>
+      <button class="ib lk ${liked ? 'on' : ''}" data-lk title="Like">${ico(liked ? 'heart-f' : 'heart')}</button><button class="ib" data-mo title="More">${ico('more')}</button></div>
+    <div class="npv-card"><div class="npv-ct">About this song</div><dl class="kv">${[['Album', t.album], ['Year', t.year || ''], ['Genre', t.genre], ['Plays', lib.db.plays[t.id] || 0], ['Quality', qual]].filter((x) => x[1] !== '' && x[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${k === 'Album' ? `<a data-al>${esc(v)}</a>` : esc(String(v))}</dd>`).join('')}</dl></div>
+    ${next.length ? `<div class="npv-card"><div class="npv-ct">Next in queue <a data-q>Open queue</a></div>${next.map((x) => { const n = lib.track(x.id); return n ? `<div class="qrow" data-id="${x.id}"><div class="th">${n.cover ? coverImg(n.cover, true) : ico('note')}</div><div class="tt"><b>${esc(n.title)}</b><small>${esc(n.artist)}</small></div></div>` : ''; }).join('')}</div>` : ''}
+    <button class="pill npv-full" data-full>${ico('expand')}Full screen</button>
+  </div>`);
   hydrate(el);
-  el.querySelector('[data-al]').onclick = () => go('album', { key: albumKey(t) });
-  el.querySelector('[data-ar]').onclick = () => go('artist', { key: albumKey(t).split('\u0001')[0] });
-  el.querySelector('[data-mo]').onclick = (e) => trackMenu([t.id], { el: e.currentTarget });
+  const q = (x) => el.querySelector(x);
+  q('[data-ar]').onclick = () => go('artist', { key: albumKey(t).split('\u0001')[0] });
+  q('[data-al]') && (q('[data-al]').onclick = () => go('album', { key: albumKey(t) }));
+  q('[data-lk]').onclick = (e) => { lib.like(t.id); const b = e.currentTarget; setLikeBtn(b, lib.isLiked(t.id)); if (lib.isLiked(t.id)) burst(b); };
+  q('[data-mo]').onclick = (e) => trackMenu([t.id], { el: e.currentTarget });
+  q('[data-q]') && (q('[data-q]').onclick = () => openPanel('queue'));
+  q('[data-full]').onclick = () => openNP(true);
+  el.addEventListener('click', (e) => { const r = e.target.closest('.qrow'); if (r) { const i = player.upNext.indexOf(r.dataset.id); if (i >= 0) { player.upNext.splice(i, 1); player.load(r.dataset.id, true); player.emit('queue'); } else player.next(); } });
+  requestAnimationFrame(() => marquee(q('.marq')));
   return el;
 }
+// Wide windows get the side-panel view; narrow ones (and the full-screen button) get the full-screen player
+export function npUsesPanel() { const m = app.S.npView || 'auto'; return !app.isMobile && (m === 'panel' || (m === 'auto' && innerWidth >= 1100)); }
+export function showNowPlaying() { if (npUsesPanel()) openPanel('info'); else openNP(true); }
 
 // ---------------- Side panel ----------------
 let panelLyrics = null;
@@ -109,7 +127,7 @@ export async function drawPanel() {
 // ---------------- Now playing overlay ----------------
 let npOpen = false, npTab = null, npLyr = null;
 export function isNPOpen() { return npOpen; }
-export function openNP() {
+export function openNP(full) {
   if (npOpen) return; npOpen = true; const np = $('#np');
   np.classList.add('open'); np.setAttribute('aria-hidden', 'false'); updateNP(); startViz();
   if (app.isMobile) history.pushState({ np: 1 }, '');
@@ -130,7 +148,8 @@ export async function updateNP() {
   np.classList.toggle('paused', !player.playing);
   $('#npPlay').classList.toggle('is-playing', player.playing);
   if (!t) return;
-  $('#npTitle').textContent = t.title; $('#npArtist').textContent = t.artist || 'Unknown Artist';
+  if ($('#npTitle').textContent !== t.title) $('#npTitle').textContent = t.title; $('#npArtist').textContent = t.artist || 'Unknown Artist';
+  if (npOpen) marquee($('#npTitleWrap'));
   $('#npSource').textContent = player.source?.label || 'Your library';
   setLikeBtn($('#npLike'), lib.isLiked(t.id));
   $('#npShuffle').classList.toggle('on', player.shuffle); $('#npRepeat').classList.toggle('on', player.repeat !== 'off');
@@ -166,16 +185,16 @@ function wireNP() {
   const art = $('#npArt'); const inner = $('.np-art-inner');
   art.addEventListener('pointermove', (e) => { if (app.isMobile || app.S.anim === 'off') return; const r = art.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5; inner.style.transform = `rotateY(${x * 10}deg) rotateX(${-y * 10}deg) scale(1.02)`; inner.style.setProperty('--shine', 1); $('.np-shine').style.backgroundPosition = `${x * 100}% 0`; });
   art.addEventListener('pointerleave', () => { inner.style.transform = ''; inner.style.setProperty('--shine', 0); });
-  art.addEventListener('dblclick', () => { const t = player.track; if (t) { lib.like(t.id); burst($('#npLike')); } });
+  art.addEventListener('dblclick', () => { if (app.S.gest?.artDouble === false && app.isMobile) return; const t = player.track; if (t) { lib.like(t.id); burst($('#npLike')); } });
   // gestures: swipe down to close, swipe on art to skip
   let sx = 0, sy = 0, st = 0, dragging = false; const np = $('#np');
   np.addEventListener('touchstart', (e) => { if (e.target.closest('.np-right, .slider')) return; sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); dragging = true; }, { passive: true });
-  np.addEventListener('touchmove', (e) => { if (!dragging) return; const dy = e.touches[0].clientY - sy, dx = e.touches[0].clientX - sx; if (dy > 0 && Math.abs(dy) > Math.abs(dx)) { np.style.transition = 'none'; np.style.transform = `translateY(${dy}px)`; } else if (Math.abs(dx) > Math.abs(dy) && e.target.closest('#npArt')) { inner.style.transform = `translateX(${dx * 0.6}px) rotate(${dx * 0.02}deg)`; } }, { passive: true });
+  np.addEventListener('touchmove', (e) => { if (!dragging) return; const dy = e.touches[0].clientY - sy, dx = e.touches[0].clientX - sx; if (dy > 0 && Math.abs(dy) > Math.abs(dx) && app.S.gest?.npDown !== false) { np.style.transition = 'none'; np.style.transform = `translateY(${dy}px)`; } else if (Math.abs(dx) > Math.abs(dy) && e.target.closest('#npArt') && app.S.gest?.artSwipe !== false) { inner.style.transform = `translateX(${dx * 0.6}px) rotate(${dx * 0.02}deg)`; } }, { passive: true });
   np.addEventListener('touchend', (e) => {
     if (!dragging) return; dragging = false; const dy = e.changedTouches[0].clientY - sy, dx = e.changedTouches[0].clientX - sx; const v = Math.abs(dy) / (Date.now() - st);
     np.style.transition = ''; np.style.transform = ''; inner.style.transform = '';
-    if (dy > 140 || (dy > 50 && v > 0.6)) { if (history.state?.np) history.back(); else closeNP(); }
-    else if (e.target.closest('#npArt') && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? player.next() : player.prev();
+    if (app.S.gest?.npDown !== false && (dy > 140 || (dy > 50 && v > 0.6))) { if (history.state?.np) history.back(); else closeNP(); }
+    else if (app.S.gest?.artSwipe !== false && e.target.closest('#npArt') && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? player.next() : player.prev();
   });
   addEventListener('popstate', () => { if (npOpen) closeNP(); });
 }
@@ -263,7 +282,7 @@ export async function enterMini() {
   document.body.classList.add('mini'); applyMini(); updateMini(true);
   const [w, h] = MINI_SIZES[app.S.mini.layout] || MINI_SIZES.bar;
   const mw = app.S.mini.w?.[app.S.mini.layout], mh = app.S.mini.h?.[app.S.mini.layout];
-  await W.setSize(mw || w, mh || h, true);
+  await W.setSize(mw || w, mh || h);
   if (app.S.mini.x != null) W.move(app.S.mini.x, app.S.mini.y);
   W.onTop(app.S.mini.onTop);
 }
@@ -271,7 +290,7 @@ export async function exitMini() {
   if (!document.body.classList.contains('mini')) return; const W = app.P.win;
   try { const p = await W.getPos(); app.S.mini.x = p.x; app.S.mini.y = p.y; const s = await W.getSize(); (app.S.mini.w ||= {})[app.S.mini.layout] = s.width; (app.S.mini.h ||= {})[app.S.mini.layout] = s.height; app.saveS(); } catch {}
   document.body.classList.remove('mini'); W.onTop(false);
-  if (saved) { await W.setSize(saved.size.width, saved.size.height, true); W.move(saved.pos.x, saved.pos.y); if (saved.max) W.toggleMax(); }
+  if (saved) { await W.setSize(saved.size.width, saved.size.height); W.move(saved.pos.x, saved.pos.y); if (saved.max) W.toggleMax(); }
 }
 export function applyMini() {
   const M = app.S.mini, mini = $('#mini');
@@ -308,7 +327,7 @@ export async function updateMini(force) {
 export function miniTime() {
   const d = player.duration, c = player.time;
   miniSeek?.update(d ? c / d : 0);
-  $('#miniCur').textContent = fmtTime(c); $('#miniDur').textContent = fmtTime(d);
+  flip($('#miniCur'), fmtTime(c)); flip($('#miniDur'), fmtTime(d));
 }
 let miniSeek, miniVol;
 function wireMini() {
@@ -327,7 +346,7 @@ function wireMini() {
       const order = ['bar', 'card', 'square', 'strip', 'art']; const W = app.P.win;
       try { const s = await W.getSize(); (M.w ||= {})[M.layout] = s.width; (M.h ||= {})[M.layout] = s.height; } catch {}
       M.layout = order[(order.indexOf(M.layout) + 1) % order.length]; app.saveS(); applyMini(); updateMini(true);
-      const [w, h] = MINI_SIZES[M.layout]; await W.setSize(M.w?.[M.layout] || w, M.h?.[M.layout] || h, true);
+      const [w, h] = MINI_SIZES[M.layout]; await W.setSize(M.w?.[M.layout] || w, M.h?.[M.layout] || h);
     } else if (k === 'custom') { await exitMiniForCustom(); }
   });
   // drag window from anywhere that's not a control
@@ -341,7 +360,7 @@ function wireMini() {
 }
 function miniMenu(at) {
   const M = app.S.mini;
-  menu([{ header: 'Layout' }, ...[['bar', 'Bar'], ['card', 'Card'], ['square', 'Square cover'], ['strip', 'Slim strip'], ['art', 'Cover only']].map(([k, l]) => ({ label: l, checked: M.layout === k, action: async () => { M.layout = k; app.saveS(); applyMini(); updateMini(true); const [w, h] = MINI_SIZES[k]; await app.P.win.setSize(M.w?.[k] || w, M.h?.[k] || h, true); } })), '-', { label: 'Customize…', icon: 'palette', action: exitMiniForCustom }, { label: M.onTop ? 'Unpin from top' : 'Always on top', icon: 'pin', action: () => { M.onTop = !M.onTop; app.P.win.onTop(M.onTop); applyMini(); app.saveS(); } }, { label: 'Back to full player', icon: 'expand', action: exitMini }], at);
+  menu([{ header: 'Layout' }, ...[['bar', 'Bar'], ['card', 'Card'], ['square', 'Square cover'], ['strip', 'Slim strip'], ['art', 'Cover only']].map(([k, l]) => ({ label: l, checked: M.layout === k, action: async () => { M.layout = k; app.saveS(); applyMini(); updateMini(true); const [w, h] = MINI_SIZES[k]; await app.P.win.setSize(M.w?.[k] || w, M.h?.[k] || h); } })), '-', { label: 'Customize…', icon: 'palette', action: exitMiniForCustom }, { label: M.onTop ? 'Unpin from top' : 'Always on top', icon: 'pin', action: () => { M.onTop = !M.onTop; app.P.win.onTop(M.onTop); applyMini(); app.saveS(); } }, { label: 'Back to full player', icon: 'expand', action: exitMini }], at);
 }
 async function exitMiniForCustom() { await exitMini(); miniCustomize(); }
 export function miniCustomize() {

@@ -164,35 +164,19 @@ export function createDesktopPlatform() {
     // ---- window ----
     win: {
       minimize: () => N().window.minimize(),
-      // Manual maximize: native SW_MAXIMIZE on a borderless transparent window misroutes clicks
-      _max: null,
+      // Maximize = true fullscreen (fills the whole monitor, exact pixels, restores the old size/position).
+      // Uses SetWindowPos instead of SW_MAXIMIZE, which misroutes clicks on borderless transparent windows.
+      _max: false,
       async toggleMax() { return p.win._max ? p.win.restore() : p.win.maximize(); },
-      async maximize() {
-        if (p.win._max) return;
-        const pos = await N().window.getPosition(), size = await N().window.getSize();
-        p.win._max = { pos, size };
-        const dpr = window.devicePixelRatio || 1, sc = window.screen;
-        await N().window.setSize({ width: sc.availWidth, height: sc.availHeight, resizable: true, minWidth: 200, minHeight: 60 });
-        await N().window.move(Math.round((sc.availLeft || 0) * dpr), Math.round((sc.availTop || 0) * dpr));
-        p.emit('maxchange', true);
-      },
-      async restore(atCursor) {
-        const m = p.win._max; if (!m) return; p.win._max = null;
-        await N().window.setSize({ width: m.size.width, height: m.size.height, resizable: true, minWidth: 200, minHeight: 60 });
-        if (atCursor) { const dpr = window.devicePixelRatio || 1; await N().window.move(Math.round(atCursor.x * dpr - m.size.width * dpr * atCursor.fx), Math.round(atCursor.y * dpr - 20 * dpr)); }
-        else await N().window.move(m.pos.x, m.pos.y);
-        p.emit('maxchange', false);
-      },
-      close: () => p.emit('close'),
-      exit: () => N().app.exit(),
-      drag: () => N().window.beginDrag().catch(() => {}),
-      setSize: (w, h, resizable = true) => N().window.setSize({ width: Math.round(w), height: Math.round(h), resizable, minWidth: 200, minHeight: 60 }),
+      async maximize() { if (p.win._max) return; await N().window.setFullScreen(); p.win._max = true; p.emit('maxchange', true); },
+      async restore() { if (!p.win._max) return; await N().window.exitFullScreen(); p.win._max = false; p.emit('maxchange', false); },
+      setSize: (w, h) => N().window.setSize({ width: Math.round(w), height: Math.round(h), resizable: false }),
       getSize: () => N().window.getSize(),
       getPos: () => N().window.getPosition(),
       move: (x, y) => N().window.move(Math.round(x), Math.round(y)),
       onTop: (v) => N().window.setAlwaysOnTop(!!v),
-      isMax: async () => !!p.win._max || (await N().window.isMaximized().catch(() => false)),
-      unmax: () => (p.win._max ? p.win.restore() : N().window.unmaximize()),
+      isMax: async () => p.win._max,
+      unmax: () => p.win.restore(),
       hide: () => N().window.hide(),
       show: async () => { await N().window.show(); await N().window.focus(); },
       setTray(items) { return N().os.setTray({ icon: '/resources/icons/tray.png', menuItems: items }).catch(() => {}); },

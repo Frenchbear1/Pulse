@@ -10,9 +10,11 @@ export const DEFAULTS = {
   eqOn: false, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], preamp: 0, eqPreset: 'Flat', engine: 'auto',
   sideMini: false, panel: null, viz: 'bars', blurLyrics: false, lastView: null, songsSort: { k: 'added', d: -1 }, albumSort: 'name', gridSize: 172,
   mini: { layout: 'bar', opacity: 0.9, blur: 40, art: true, onTop: true, progress: true, times: true, radius: 14 },
-  closeToTray: false, rescanOnStart: true, watch: true, showSplash: true
+  closeToTray: false, rescanOnStart: true, watch: true, showSplash: true,
+  npView: 'auto',
+  gest: { right: 'queue', left: 'like', miniSwipe: true, miniUp: true, npDown: true, artSwipe: true, artDouble: true, haptics: true }
 };
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 export const REPO = 'Frenchbear1/Pulse';
 export const app = {
   S: null, P: null, isDesktop: false, isMobile: false,
@@ -22,7 +24,7 @@ export const app = {
 app.saveS = debounce(() => { try { localStorage.setItem('pulse.settings', JSON.stringify(app.S)); } catch {} }, 300);
 export function loadSettings() {
   let s = {}; try { s = JSON.parse(localStorage.getItem('pulse.settings') || '{}'); } catch {}
-  const S = Object.assign(structuredClone(DEFAULTS), s); S.mini = Object.assign(structuredClone(DEFAULTS.mini), s.mini || {});
+  const S = Object.assign(structuredClone(DEFAULTS), s); S.mini = Object.assign(structuredClone(DEFAULTS.mini), s.mini || {}); S.gest = Object.assign(structuredClone(DEFAULTS.gest), s.gest || {});
   return S;
 }
 
@@ -249,9 +251,54 @@ export function burst(el) {
   el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
 }
 export function setLikeBtn(btn, on) { if (!btn) return; btn.classList.toggle('on', on); const u = btn.querySelector('use'); if (u) u.setAttribute('href', on ? '#i-heart-f' : '#i-heart'); }
+// Long titles: rest, glide slowly to the end, rest, fade out, fade back in at the start.
+// Only runs when the text actually doesn't fit, and re-checks whenever the space changes.
 export function marquee(wrap) {
-  if (!wrap) return; wrap.classList.remove('go'); const inner = wrap.firstElementChild; if (!inner) return;
-  requestAnimationFrame(() => { const over = inner.scrollWidth - wrap.clientWidth; if (over > 4) { wrap.style.setProperty('--mx', -(over + 40) + 'px'); wrap.style.setProperty('--md', Math.max(6, over / 25) + 's'); wrap.classList.add('go'); } });
+  if (!wrap) return; const inner = wrap.firstElementChild; if (!inner) return;
+  if (!wrap._ro && 'ResizeObserver' in window) { wrap._ro = new ResizeObserver(() => { clearTimeout(wrap._rt); wrap._rt = setTimeout(() => marquee(wrap), 200); }); wrap._ro.observe(wrap); }
+  requestAnimationFrame(() => {
+    const over = inner.scrollWidth - wrap.clientWidth;
+    const key = over + '|' + inner.textContent;
+    if (wrap._key === key && wrap._anim) return; // nothing changed: keep the current loop running smoothly
+    wrap._key = key; wrap._anim?.cancel(); wrap._anim = null; wrap.classList.remove('go');
+    if (over <= 2 || !wrap.clientWidth || app.S?.anim === 'off') return;
+    wrap.classList.add('go');
+    const dist = over + 28, speed = app.S?.anim === 'low' ? 18 : 26; // px per second — slow and calm
+    const hold = 2800, move = (dist / speed) * 1000, rest = 2000, fade = 900, back = 900;
+    const total = hold + move + rest + fade + back; const at = (ms) => ms / total;
+    wrap._anim = inner.animate([
+      { transform: 'translateX(0)', opacity: 1, offset: 0 },
+      { transform: 'translateX(0)', opacity: 1, offset: at(hold), easing: 'cubic-bezier(.45,.05,.55,.95)' },
+      { transform: `translateX(${-dist}px)`, opacity: 1, offset: at(hold + move) },
+      { transform: `translateX(${-dist}px)`, opacity: 1, offset: at(hold + move + rest), easing: 'cubic-bezier(.4,0,.2,1)' },
+      { transform: `translateX(${-dist}px)`, opacity: 0, offset: at(hold + move + rest + fade) },
+      { transform: 'translateX(0)', opacity: 0, offset: Math.min(1, at(hold + move + rest + fade) + 0.0005), easing: 'cubic-bezier(.4,0,.2,1)' },
+      { transform: 'translateX(0)', opacity: 1, offset: 1 }
+    ], { duration: total, iterations: Infinity });
+  });
+}
+
+// Rolling digit counters: each digit is a little reel that glides to its new value.
+export function flip(el, text) {
+  if (!el) return; text = String(text);
+  if (el._flip === text) return;
+  const prev = el._flip; el._flip = text;
+  if (app.S?.anim === 'off') { el.textContent = text; el._reels = null; return; }
+  const shape = (t) => t.replace(/\d/g, '0');
+  if (!el._reels || prev == null || shape(prev) !== shape(text)) {
+    el.classList.add('flipnum'); el.textContent = '';
+    el._reels = [...text].map((ch) => {
+      if (!/\d/.test(ch)) { const s = document.createElement('span'); s.textContent = ch; el.appendChild(s); return null; }
+      const r = document.createElement('span'); r.className = 'reel';
+      const st = document.createElement('span'); st.className = 'strip'; st.textContent = '0123456789'.split('').join('\n');
+      r.appendChild(st); el.appendChild(r);
+      st.style.transform = `translateY(${-(prev ? 0 : +ch) * 10}%)`; return st;
+    });
+    if (prev == null) { [...text].forEach((ch, i) => { if (el._reels[i]) el._reels[i].style.transform = `translateY(${-ch * 10}%)`; }); return; }
+    requestAnimationFrame(() => [...text].forEach((ch, i) => { if (el._reels[i]) el._reels[i].style.transform = `translateY(${-ch * 10}%)`; }));
+    return;
+  }
+  [...text].forEach((ch, i) => { const st = el._reels[i]; if (st) st.style.transform = `translateY(${-ch * 10}%)`; });
 }
 
 // Slider helper (pointer drag, keyboard)
@@ -283,5 +330,9 @@ export async function autoUpdateCheck() {
   const u = await checkForUpdate(); if (!u?.newer) return;
   const t = toast(`Pulse ${u.version} is available — open Settings to download`, 6000);
 }
+
+export const haptic = (ms = 8) => { if (app.S?.gest?.haptics !== false) navigator.vibrate?.(ms); };
+// Spotify-style row swipe actions
+export const SWIPE_ACTIONS = { queue: ['Add to queue', 'queue'], next: ['Play next', 'next'], like: ['Like', 'heart-f'], playlist: ['Add to playlist', 'playlist'], off: ['Off', 'x'] };
 
 export { lib, player, toast };

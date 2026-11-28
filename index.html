@@ -100,7 +100,7 @@
     </label>
     <div class="tb-drag"></div>
     <div class="tb-right">
-      <div id="scanPill" class="scan-pill hidden"><span class="spin"></span><span class="txt"></span></div>
+      <div id="scanPill" class="scan-pill"><span class="spin"></span><svg class="ok"><use href="#i-check"/></svg><span class="lbl"></span><span class="cnt"></span><button class="refresh" title="Show the new songs">Show</button></div>
       <button class="ib" id="btnSettings" title="Settings (Ctrl+,)"><svg><use href="#i-gear"/></svg></button>
       <div class="winbtns">
         <button class="wb" id="wMin" title="Minimize"><svg><use href="#i-wmin"/></svg></button>
@@ -118,7 +118,7 @@
     <div class="side-lib">
       <div class="side-head">
         <a data-go="library" class="side-title"><svg><use href="#i-library"/></svg><span>Your Library</span></a>
-        <button class="ib sm" id="sideNew" title="Create playlist or folder"><svg><use href="#i-plus"/></svg></button>
+        <button class="ib sm" id="sideSort" title="Sort & filter"><svg><use href="#i-sort"/></svg></button><button class="ib sm" id="sideNew" title="Create playlist or folder"><svg><use href="#i-plus"/></svg></button>
       </div>
       <div class="side-chips">
         <a data-go="songs"><svg><use href="#i-note"/></svg><span>Songs</span></a>
@@ -140,7 +140,7 @@
     <div class="panel-tabs">
       <button data-ptab="queue" class="on">Queue</button>
       <button data-ptab="lyrics">Lyrics</button>
-      <button data-ptab="info">Info</button>
+      <button data-ptab="info">Playing</button>
       <button class="ib sm" id="panelClose"><svg><use href="#i-x"/></svg></button>
     </div>
     <div id="panelBody"></div>
@@ -201,7 +201,7 @@
     <div class="np-left">
       <div class="np-art" id="npArt"><div class="np-art-inner"><img alt=""><div class="art-fallback"><svg><use href="#i-note"/></svg></div><div class="np-shine"></div></div></div>
       <div class="np-meta">
-        <div class="np-titles"><h1 id="npTitle">—</h1><a id="npArtist">—</a></div>
+        <div class="np-titles"><div class="marq" id="npTitleWrap"><h1 id="npTitle">—</h1></div><a id="npArtist">—</a></div>
         <button class="ib like big" id="npLike"><svg><use href="#i-heart"/></svg></button>
       </div>
       <div class="seek-row np-seek"><span id="npCur">0:00</span><div class="slider seek" id="npSeekBar"><div class="buf"></div><div class="fill"></div><div class="knob"></div><div class="tip"></div></div><span id="npDur">0:00</span></div>
@@ -259,7 +259,7 @@
   </div>
 </section>
 
-<div id="grips"><div class="g r" data-g="r"></div><div class="g b" data-g="b"></div><div class="g br" data-g="br"></div></div>
+<div id="grips"><div class="g t" data-g="t"></div><div class="g r" data-g="r"></div><div class="g b" data-g="b"></div><div class="g l" data-g="l"></div><div class="g tl" data-g="tl"></div><div class="g tr" data-g="tr"></div><div class="g bl" data-g="bl"></div><div class="g br" data-g="br"></div></div>
 <div id="layer"></div>
 <div id="toasts"></div>
 <div id="boot"><div class="boot-logo"><span></span><span></span><span></span><span></span></div></div>

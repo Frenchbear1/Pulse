@@ -24,7 +24,7 @@ export function parseCSV(text) {
 const COLS = {
   title: /^(track name|name|title|song)$/i, artist: /^(artist name\(s\)|artist names?|artists?)$/i, album: /^(album name|album)$/i,
   albumArtist: /^album artist name\(s\)$/i, dur: /^(track )?duration( \(ms\))?$/i, isrc: /^isrc$/i, uri: /^(track uri|spotify id|uri)$/i,
-  added: /^added at$/i, year: /^album release date$/i, track: /^track number$/i, image: /^album image url$/i
+  added: /^added at$/i, year: /^(album )?release date$/i, track: /^track number$/i, image: /^album image url$/i, genres: /^(artist )?genres$/i, label: /^record label$/i, explicit: /^explicit$/i
 };
 export function exportifyToItems(text) {
   const rows = parseCSV(text); if (rows.length < 2) return null;
@@ -34,7 +34,7 @@ export function exportifyToItems(text) {
   const g = (r, k) => (idx[k] >= 0 ? (r[idx[k]] || '').trim() : '');
   return rows.slice(1).filter((r) => g(r, 'title')).map((r) => {
     let d = +g(r, 'dur') || 0; if (d && d < 20000 && /duration$/i.test(head[idx.dur] || '')) d *= 1000; // seconds → ms
-    return { t: g(r, 'title'), a: g(r, 'artist'), al: g(r, 'album'), d, isrc: g(r, 'isrc').toUpperCase().replace(/[^A-Z0-9]/g, ''), uri: g(r, 'uri'), added: Date.parse(g(r, 'added')) || 0, img: g(r, 'image') };
+    return { t: g(r, 'title'), a: g(r, 'artist'), al: g(r, 'album'), d, isrc: g(r, 'isrc').toUpperCase().replace(/[^A-Z0-9]/g, ''), uri: g(r, 'uri'), added: Date.parse(g(r, 'added')) || 0, img: g(r, 'image'), year: parseInt(g(r, 'year').slice(0, 4), 10) || 0, genre: (g(r, 'genres').split(',')[0] || '').trim().replace(/\b\w/g, (c) => c.toUpperCase()), label: g(r, 'label'), explicit: /true/i.test(g(r, 'explicit')) };
   });
 }
 export function nameFromFile(fn) {
@@ -125,7 +125,7 @@ export function buildIndex() {
 const ensureIndex = () => (M && M.n === Object.keys(lib.db.tracks).length ? M : buildIndex());
 lib.on((e) => { if (e === 'index') M = null; });
 
-export function matchItem(it) {
+export function matchItem(it, prefer) {
   const I = ensureIndex();
   if (it.isrc && I.byIsrc.has(it.isrc)) return { id: I.byIsrc.get(it.isrc)[0], score: 1, why: 'ISRC' };
   const nt = normTitle(it.t), sa = splitArtists(it.a), nal = normTitle(it.al);
@@ -133,6 +133,7 @@ export function matchItem(it) {
   const w = nt.split(' ').filter((x) => x.length > 2);
   for (const k of [w[0] || nt, w[1]]) for (const id of I.byWord.get(k) || []) cand.add(id);
   if (cand.size < 3) for (const a of sa) for (const id of I.byArtist.get(a) || []) cand.add(id);
+  if (prefer) for (const id of prefer) cand.add(id); // songs in the folder named after this playlist
   let best = null, second = 0;
   for (const id of cand) {
     const m = I.meta.get(id); if (!m) continue;
@@ -142,6 +143,7 @@ export function matchItem(it) {
     let s = ts * 0.6 + as * 0.25 + durSim(it.d, m.dur) * 0.15;
     if (nal && m.nal && nal === m.nal) s += 0.05;
     if (as < 0.4) s -= 0.12; // right title, wrong artist (covers, same-name songs)
+    if (prefer?.has(id)) s += 0.08;
     s = Math.min(1, s);
     if (!best || s > best.score) { if (best) second = best.score; best = { id, score: s }; } else if (s > second) second = s;
   }
@@ -153,13 +155,22 @@ export const AUTO = 0.84, REVIEW = 0.6;
 export function classify(r) { if (!r || r.score < REVIEW) return 'missing'; if (r.score >= AUTO && !r.close) return 'matched'; return 'review'; }
 
 // Run matching for many playlists in parallel-ish batches, yielding to keep the UI smooth
+// Your downloads live in folders named after playlists: find the folder that goes with a playlist
+const loose = (x) => norm(x).replace(/[^a-z0-9]+/g, ' ').trim();
+export function folderFor(name) {
+  const want = loose(name); if (!want || !lib.idx.folders) return null; let hit = null;
+  const walk = (n) => { for (const c of n.children.values()) { if (!hit && loose(c.name) === want) hit = c; walk(c); } }; walk(lib.idx.folders);
+  return hit;
+}
 export async function matchLists(lists, onProgress) {
   buildIndex(); const cache = new Map(); let done = 0; const total = lists.reduce((a, l) => a + l.items.length, 0);
   for (const l of lists) {
     l.res = [];
+    const folder = folderFor(l.name); l.folder = folder ? folder.name : null;
+    const prefer = folder ? new Set(lib.folderAllTracks(folder)) : null;
     for (let i = 0; i < l.items.length; i++) {
-      const it = l.items[i]; const key = it.uri || it.isrc || it.t + '|' + it.a + '|' + it.d;
-      let r = cache.get(key); if (r === undefined) { r = matchItem(it); cache.set(key, r); }
+      const it = l.items[i]; const key = (prefer ? l.name + '|' : '') + (it.uri || it.isrc || it.t + '|' + it.a + '|' + it.d);
+      let r = cache.get(key); if (r === undefined) { r = matchItem(it, prefer); cache.set(key, r); }
       const st = classify(r);
       l.res.push({ r, st, use: st === 'matched' || (st === 'review' && r.score >= 0.72) ? r.id : null });
       if (++done % 150 === 0) { onProgress?.(done, total, l); await new Promise((ok) => setTimeout(ok, 0)); }
@@ -178,24 +189,41 @@ function rebuildTracks(n) {
   n.tracks = [...sp.map.filter((id) => id && lib.track(id)), ...extras];
   sp.prevMapped = sp.map.filter(Boolean);
 }
+// Fill in what the files are missing (album, year, genre, label, ISRC) from Spotify's data
+function enrich(id, it) {
+  const t = lib.track(id); if (!t) return 0; let n = 0;
+  const weakAlbum = !t.album || t.albumGuess === true;
+  if (it.al && weakAlbum && t.album !== it.al) { t.album = it.al; t.albumGuess = false; n++; }
+  if (it.year && !t.year) { t.year = it.year; n++; }
+  if (it.genre && !t.genre) { t.genre = it.genre; n++; }
+  if (it.isrc && !t.isrc) { t.isrc = it.isrc; n++; }
+  if (it.label && !t.label) { t.label = it.label; n++; }
+  if (it.uri && !t.spotify) { t.spotify = it.uri; }
+  if (!t.artist && it.a) { t.artist = it.a.replace(/,(?=\S)/g, ', '); n++; }
+  return n ? 1 : 0;
+}
 export function createFromLists(lists, opt) {
-  let parent = opt.parent;
+  let parent = opt.parent; let enriched = 0;
   if (parent === '__new') parent = lib.createNode('folder', opt.folderName || 'Spotify').id;
   const made = [];
   for (const l of lists) {
     if (!l.include) continue;
     const map = l.res.map((x) => x.use || null);
+    if (opt.enrich) map.forEach((id, i) => { if (id) enriched += enrich(id, l.items[i]); });
+    const addedAt = {}; map.forEach((id, i) => { if (id && l.items[i].added) addedAt[id] = l.items[i].added; });
     const spotify = { file: l.file, items: l.items.map(({ t, a, al, d, isrc, uri }) => ({ t, a, al, d, isrc, uri })), map, imported: Date.now(), sync: opt.sync };
     if (l.isLiked && opt.likedToLiked) { let c = 0; map.forEach((id, i) => { if (id && !lib.isLiked(id)) { lib.db.liked[id] = l.items[i].added || Date.now(); c++; } }); lib.save(); lib.emit('liked'); }
     if (l.isLiked && opt.likedToLiked && !opt.likedAlsoPlaylist) continue;
     let n = Object.values(lib.db.nodes).find((x) => x.type === 'playlist' && x.name === l.name && (x.parent || null) === (parent || null));
-    if (n && opt.dupes === 'replace') { n.spotify = spotify; n.tracks = []; rebuildTracks(n); }
+    if (n && opt.dupes === 'replace') { n.spotify = spotify; n.tracks = []; rebuildTracks(n); n.addedAt = addedAt; }
     else if (n && opt.dupes === 'merge') { const have = new Set(n.tracks); n.spotify = spotify; for (const id of map) if (id && !have.has(id)) { n.tracks.push(id); have.add(id); } n.spotify.prevMapped = map.filter(Boolean); }
-    else { n = lib.createNode('playlist', l.name, parent || null, { spotify, desc: `Imported from Spotify (${l.items.length} songs)` }); rebuildTracks(n); }
+    else { n = lib.createNode('playlist', l.name, parent || null, { spotify, addedAt, desc: `Imported from Spotify (${l.items.length} songs)` }); rebuildTracks(n); }
+    if (!n.addedAt) n.addedAt = addedAt;
     n.updated = Date.now(); made.push(n);
   }
+  if (enriched) lib.reindex(true);
   lib.save(); lib.emit('nodes');
-  return { parent, made };
+  return { parent, made, enriched };
 }
 export function spotifyStats(n) {
   const sp = n.spotify; if (!sp) return null;
@@ -305,6 +333,8 @@ export function openSpotifyImport() {
   };
   const body = () => {
     if (W.step === 1) return `
+      <div class="sp-what"><b>What this does</b><p>Your music is already on your PC — this doesn't download anything. It takes your Spotify playlists and rebuilds them in Pulse from the songs you have:</p>
+        <ul><li><b>Same playlists, same song order</b> — matched to your files, and to the folder named after each playlist when there is one</li><li><b>Your Liked Songs</b>, with the dates you liked them</li><li><b>“Date added”</b> for every song, so you can sort playlists like Spotify</li><li><b>Missing info filled in</b> — album, year, genre and label for files that don’t have them</li><li>A <b>“not in your library”</b> list for anything you don’t have yet — it fills itself in once those files show up</li></ul></div>
       <div class="sp-guide">
         <div class="sp-g"><span>1</span><div><b>Open Exportify</b><p>Exportify is a free, open-source site that saves your Spotify playlists as spreadsheet (CSV) files. Nothing is downloaded but the track lists.</p><button class="pill solid" data-open>${ico('export')}Open exportify.net</button></div></div>
         <div class="sp-g"><span>2</span><div><b>Log in with Spotify</b><p>Click <i>Get Started</i> and approve read-only access to your playlists.</p></div></div>
@@ -320,7 +350,7 @@ export function openSpotifyImport() {
       const l = W.lists[W.sel];
       const tot = W.lists.filter((x) => x.include).reduce((a, x) => a + x.res.filter((r) => r.use).length, 0);
       return `<div class="sp-grid">
-        <div class="sp-lists">${W.lists.map((x, i) => { const c = cnt(x); return `<div class="sp-li ${i === W.sel ? 'on' : ''}" data-sel="${i}"><div class="tog ${x.include ? 'on' : ''}" data-inc="${i}"></div><div class="tt"><b>${esc(x.name)}</b><small><span class="ok">${c.use}</span> / ${x.items.length} found${c.review ? ` • <span class="rv">${c.review} to check</span>` : ''}</small></div><div class="sp-bar"><i style="width:${(c.use / x.items.length) * 100}%"></i></div></div>`; }).join('')}</div>
+        <div class="sp-lists">${W.lists.map((x, i) => { const c = cnt(x); return `<div class="sp-li ${i === W.sel ? 'on' : ''}" data-sel="${i}"><div class="tog ${x.include ? 'on' : ''}" data-inc="${i}"></div><div class="tt"><b>${esc(x.name)}</b><small><span class="ok">${c.use}</span> / ${x.items.length} found${c.review ? ` • <span class="rv">${c.review} to check</span>` : ''}${x.folder ? ` • ${ico('folder').replace('<svg>', '<svg class="fold">')} ${esc(x.folder)}` : ''}</small></div><div class="sp-bar"><i style="width:${(c.use / x.items.length) * 100}%"></i></div></div>`; }).join('')}</div>
         <div class="sp-detail"><div class="sp-dh"><input class="inp sp-name" value="${esc(l.name)}" title="Playlist name"><span>${l.items.length} songs on Spotify</span></div><div data-review></div></div>
       </div>
       <div class="row"><span style="flex:1;opacity:.7;font-size:13px;align-self:center">${W.lists.filter((x) => x.include).length} playlists • ${tot.toLocaleString()} songs will be added</span><button class="pill" data-back>${ico('back')}Back</button><button class="pill solid" data-next>Next ${ico('fwd')}</button></div>`;
@@ -331,6 +361,7 @@ export function openSpotifyImport() {
       return `<div class="sp-opts">
         <div class="opt"><div class="l"><b>Put the playlists in</b><small>Everything stays nested in your library — move them anytime</small></div><div class="r"><select class="inp" id="spParent" style="width:240px"><option value="__new">New folder “Spotify”</option><option value="">Top level of Your Library</option>${folders.map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join('')}</select></div></div>
         <div class="opt"><div class="l"><b>If a playlist with the same name exists</b></div><div class="r"><div class="seg" id="spDup"><button data-v="merge" class="on">Merge</button><button data-v="replace">Replace</button><button data-v="new">Keep both</button></div></div></div>
+        <div class="opt"><div class="l"><b>Fill in missing song info</b><small>Album, year, genre and label from Spotify — only where your files are blank or just use the folder name</small></div><div class="r"><div class="tog on" id="spEnrich"></div></div></div>
         <div class="opt"><div class="l"><b>Keep in sync with your music folder</b><small>When a missing song shows up later, Pulse adds it in the right spot automatically</small></div><div class="r"><div class="tog on" id="spSync"></div></div></div>
         ${hasLiked ? `<div class="opt"><div class="l"><b>Liked Songs → Pulse Liked Songs</b><small>Heart the matched songs instead of making a separate playlist</small></div><div class="r"><div class="tog on" id="spLiked"></div></div></div>` : ''}
       </div>
@@ -393,12 +424,12 @@ export function openSpotifyImport() {
     if (W.step === 4) {
       let dupes = 'merge';
       q('#spDup').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; dupes = b.dataset.v; $$('#spDup button', root).forEach((x) => x.classList.toggle('on', x === b)); };
-      for (const id of ['#spSync', '#spLiked']) q(id)?.addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
+      for (const id of ['#spSync', '#spLiked', '#spEnrich']) q(id)?.addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
       q('[data-import]').onclick = () => {
-        const res = createFromLists(W.lists, { parent: q('#spParent').value, folderName: 'Spotify', dupes, sync: q('#spSync').classList.contains('on'), likedToLiked: !!q('#spLiked')?.classList.contains('on') });
+        const res = createFromLists(W.lists, { parent: q('#spParent').value, folderName: 'Spotify', dupes, sync: q('#spSync').classList.contains('on'), likedToLiked: !!q('#spLiked')?.classList.contains('on'), enrich: !!q('#spEnrich')?.classList.contains('on') });
         stop(); closeLayer();
         const songs = res.made.reduce((a, n) => a + n.tracks.length, 0);
-        toast(`Imported ${res.made.length} playlist${res.made.length === 1 ? '' : 's'} • ${songs.toLocaleString()} songs`, 3500);
+        toast(`Imported ${res.made.length} playlist${res.made.length === 1 ? '' : 's'} • ${songs.toLocaleString()} songs${res.enriched ? ` • filled in info for ${res.enriched.toLocaleString()}` : ''}`, 4500);
         import('./views.js').then((v) => v.rerenderTrees());
         if (res.parent) go('node', { id: res.parent }); else if (res.made[0]) go('node', { id: res.made[0].id }); else go('liked');
       };
