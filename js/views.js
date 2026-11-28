@@ -6,7 +6,13 @@ import { albumKeyOf, primaryArtist } from './library.js';
 
 const R = app.renderers;
 import { renderListen, homeSoundsRow } from './listen.js';
+import { renderStats, mixesRow, mixByKey, mixCover } from './smart.js';
 R.listen = renderListen;
+R.stats = renderStats;
+R.mix = ({ key }) => {
+  const m = mixByKey(key); if (!m) return h('<div class="page"><div class="empty"><h3>This mix has refreshed</h3><p>Mixes update every day. Check Home for today\'s picks.</p></div></div>');
+  return listPage({ title: m.name, ids: m.ids, source: { type: 'mix', id: m.key, label: m.name }, hero: heroEl({ kind: 'Made for you', title: m.name, art: mixCover(m), desc: m.desc, stats: `${plural(m.ids.length, 'song')} • ${fmtLong(sumDur(m.ids))} • refreshes daily`, color: `hsl(${m.hue} 55% 35%)` }) });
+};
 const T = (id) => lib.track(id);
 const sumDur = (ids) => ids.reduce((a, i) => a + (T(i)?.duration || 0), 0);
 const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
@@ -281,6 +287,7 @@ R.home = () => {
   el.appendChild(h(`<div class="tiles">${tiles.join('')}</div>`));
   const section = (title, html, more) => { if (!html) return; el.appendChild(h(`<div class="sec"><h2>${title}</h2>${more ? `<a data-go="${more}">Show all</a>` : ''}</div>`)); el.appendChild(h(`<div class="grid row">${html}</div>`)); };
   if (recAlbums.length) section('Jump back in', recAlbums.slice(0, 14).map(albumCard).join(''));
+  const mixRow = mixesRow(); if (mixRow) el.appendChild(mixRow);
   const playlists = lib.db.rootNodes.map((id) => lib.node(id)).filter(Boolean);
   if (playlists.length) section('Your library', playlists.slice(0, 14).map(nodeCard).join(''), 'library');
   const recentAdded = [...lib.idx.albums.values()].map((al) => [Math.max(...al.tracks.map((i) => T(i).added || 0)), al]).sort((a, b) => b[0] - a[0]).slice(0, 14).map((x) => x[1]);

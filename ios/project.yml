@@ -1,0 +1,152 @@
+# XcodeGen spec for the native Pulse apps.
+#
+#   brew install xcodegen
+#   cd ios && xcodegen          # writes Pulse.xcodeproj (never commit it; regenerate instead)
+#   open Pulse.xcodeproj
+#
+# Targets
+#   Pulse                   iOS/iPadOS app (SwiftUI) + CarPlay audio scene
+#   PulseWidgets            WidgetKit extension: Now Playing / Playlists / Lock Screen widgets + Live Activity
+#   PulseWatch              watchOS app (single-target style): phone remote + offline synced playlists
+#   PulseWatchComplication  watchOS WidgetKit extension: the watch-face complication
+#   PulseKit                local Swift package shared by everything (models, library, playback engine)
+#
+# Placeholders to change before shipping:
+#   - DEVELOPMENT_TEAM          your 10-character Apple team id (Xcode > Settings > Accounts)
+#   - bundle ids under app.pulse.player.*  (must be unique on the App Store; pick your own reverse-DNS)
+#   - PULSE_APP_GROUP           must match the App Group you register in the developer portal
+
+name: Pulse
+
+options:
+  bundleIdPrefix: app.pulse
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  xcodeVersion: "15.4"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  postGenCommand: echo "Pulse.xcodeproj generated. Set your team under Signing & Capabilities if DEVELOPMENT_TEAM is empty."
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: ""                  # <- set your team id here (or in Xcode once)
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.5.0"            # keep in step with the repo's VERSION file
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    PULSE_APP_GROUP: group.app.pulse.player
+    PULSE_BUNDLE_ID: app.pulse.player
+
+packages:
+  PulseKit:
+    path: PulseKit
+
+targets:
+
+  # ---------------------------------------------------------------- iOS app
+  Pulse:
+    type: application
+    platform: iOS
+    sources:
+      - path: Pulse
+      - path: Shared            # App Intents compiled into both the app and the widget extension
+    dependencies:
+      - package: PulseKit
+      - target: PulseWidgets
+        embed: true
+      - target: PulseWatch      # XcodeGen embeds a watchOS app into the iOS app's Watch folder
+      - sdk: CarPlay.framework
+      - sdk: WatchConnectivity.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PULSE_BUNDLE_ID)
+        PRODUCT_NAME: Pulse
+        INFOPLIST_FILE: Pulse/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Pulse/Pulse.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+    scheme:
+      testTargets: []
+      gatherCoverageData: false
+
+  # ---------------------------------------------------------------- widgets + Live Activity
+  PulseWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PulseWidgets
+      - path: Shared
+    dependencies:
+      - package: PulseKit
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PULSE_BUNDLE_ID).widgets
+        PRODUCT_NAME: PulseWidgets
+        INFOPLIST_FILE: PulseWidgets/Info.plist
+        CODE_SIGN_ENTITLEMENTS: PulseWidgets/PulseWidgets.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+        # Lets shared files say `#if PULSE_WIDGET_EXTENSION` when something must only exist in the app
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) PULSE_WIDGET_EXTENSION
+
+  # ---------------------------------------------------------------- Apple Watch app
+  PulseWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: PulseWatch
+    dependencies:
+      - package: PulseKit
+      - target: PulseWatchComplication
+        embed: true
+      - sdk: WatchConnectivity.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PULSE_BUNDLE_ID).watchkitapp
+        PRODUCT_NAME: Pulse
+        INFOPLIST_FILE: PulseWatch/Info.plist
+        CODE_SIGN_ENTITLEMENTS: PulseWatch/PulseWatch.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SKIP_INSTALL: YES
+
+  # ---------------------------------------------------------------- watch-face complication
+  PulseWatchComplication:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: PulseWatchComplication
+    dependencies:
+      - package: PulseKit
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PULSE_BUNDLE_ID).watchkitapp.complication
+        PRODUCT_NAME: PulseWatchComplication
+        INFOPLIST_FILE: PulseWatchComplication/Info.plist
+        CODE_SIGN_ENTITLEMENTS: PulseWatchComplication/PulseWatchComplication.entitlements
+        SKIP_INSTALL: YES
+
+schemes:
+  Pulse:
+    build:
+      targets:
+        Pulse: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  PulseWatch:
+    build:
+      targets:
+        PulseWatch: all
+    run:
+      config: Debug

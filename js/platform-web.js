@@ -5,9 +5,10 @@ import { hashStr, cachedReader } from './util.js';
 
 function idb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('pulse', 1);
-    r.onupgradeneeded = () => { const d = r.result; for (const s of ['kv', 'files', 'covers']) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); };
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    const r = indexedDB.open('pulse', 2); // v2 adds 'videos' (video files + their subtitles); existing stores are kept
+    r.onupgradeneeded = () => { const d = r.result; for (const s of ['kv', 'files', 'covers', 'videos']) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); };
+    r.onsuccess = () => { const d = r.result; d.onversionchange = () => { d.close(); dbp = null; }; res(d); }; r.onerror = () => rej(r.error);
+    r.onblocked = () => console.warn('IndexedDB upgrade waiting for another Pulse tab to close');
   });
 }
 let dbp;
@@ -103,6 +104,12 @@ export function createWebPlatform() {
     openURL(u) { window.open(u, '_blank', 'noopener'); },
     async storageInfo() { try { return await navigator.storage.estimate(); } catch { return null; } },
     async writeClipboard(t) { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } },
+    // ---- videos (kept apart from songs, in their own store) ----
+    saveVideoFile(id, blob) { return put('videos', id, blob); },
+    getVideoFile(id) { return get('videos', id); },
+    async deleteVideoFile(id) { await del('videos', id); try { await del('videos', 'sub:' + id); } catch {} },
+    saveVideoSub(id, vtt) { return put('videos', 'sub:' + id, vtt); },
+    async getVideoSub(id) { return (await get('videos', 'sub:' + id)) || null; },
     win: null
   };
   return p;
